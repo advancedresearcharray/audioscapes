@@ -6,6 +6,8 @@ It equalizes, compresses, and lifts buried low, mid, and high so thin tracks fil
 
 The engine is **Cascade EQ** on PipeWire, using **LSP** plugins (the same DSP family Easy Effects uses): Graphic Equalizer x16 Stereo, Compressor Stereo, and Limiter Stereo. The control panel is a native GTK4 / libadwaita app.
 
+![Audioscapes vintage audio rack](docs/audioscapes-rack.png)
+
 ## Download
 
 Ubuntu 24.04 (or similar). Get the latest zip from **[Releases](https://github.com/advancedresearcharray/audioscapes/releases/latest)**, unzip it, then:
