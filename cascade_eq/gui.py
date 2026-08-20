@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import sys
 import threading
 import time
@@ -2167,6 +2168,9 @@ class CascadeWindow(Adw.ApplicationWindow):
         scroll.set_child(cabinet)
         toolbar.set_content(scroll)
         self.set_content(toolbar)
+        self._header = header
+        self._scroll = scroll
+        self._cabinet = cabinet
 
         self.enable = Gtk.Switch()
         self.enable.set_valign(Gtk.Align.CENTER)
@@ -2518,6 +2522,59 @@ class CascadeWindow(Adw.ApplicationWindow):
         face.append(expander)
         unit.append(face)
         return unit
+
+    def _save_full_rack_png(self, path: str) -> None:
+        """Render the whole cabinet (every unit) to a PNG, not just the viewport."""
+        from gi.repository import Graphene
+
+        for exp in self._expanders.values():
+            exp.set_expanded(True)
+        ctx = GLib.MainContext.default()
+        for _ in range(80):
+            if not ctx.iteration(False):
+                break
+
+        chunks: list[Path] = []
+        tmp_dir = Path(path).resolve().parent
+        header = getattr(self, "_header", None)
+        menubar = getattr(self, "_menubar", None)
+        parts = [w for w in (menubar, header, self._cabinet) if w is not None]
+        for i, widget in enumerate(parts):
+            width = max(1, widget.get_width())
+            if widget is self._cabinet:
+                measured = widget.measure(Gtk.Orientation.VERTICAL, width)
+                height = max(widget.get_height(), int(measured[1]), int(measured[0]), 1)
+                widget.allocate(width, height, -1, None)
+            else:
+                height = max(1, widget.get_height())
+            snapshot = Gtk.Snapshot()
+            Gtk.Widget.do_snapshot(widget, snapshot)
+            node = snapshot.to_node()
+            if node is None:
+                raise RuntimeError(f"snapshot failed for {widget.get_name()}")
+            renderer = widget.get_native().get_renderer()
+            rect = Graphene.Rect().init(0.0, 0.0, float(width), float(height))
+            texture = renderer.render_texture(node, rect)
+            part = tmp_dir / f".rack-part-{i}.png"
+            if not texture.save_to_png(str(part)):
+                raise RuntimeError(f"png save failed for {part}")
+            chunks.append(part)
+
+        from PIL import Image
+
+        images = [Image.open(p).convert("RGB") for p in chunks]
+        width = max(im.width for im in images)
+        height = sum(im.height for im in images)
+        stacked = Image.new("RGB", (width, height), (8, 10, 12))
+        y = 0
+        for im in images:
+            stacked.paste(im, (0, y))
+            y += im.height
+        dest = Path(path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        stacked.save(dest, "PNG", optimize=True)
+        for part in chunks:
+            part.unlink(missing_ok=True)
 
     def _on_rack_toggle(self, expander: Gtk.Expander, _pspec, model: str) -> None:
         rec = dict(self.state.get("rack_expanded") or {})
@@ -4487,6 +4544,18 @@ class CascadeApp(Adw.Application):
         if not win:
             win = CascadeWindow(self)
         win.present()
+        shot = os.environ.get("CASCADE_EQ_SCREENSHOT", "").strip()
+        if shot:
+
+            def _take_shot() -> bool:
+                try:
+                    win._save_full_rack_png(shot)
+                except Exception as exc:  # noqa: BLE001
+                    sys.stderr.write(f"rack screenshot failed: {exc}\n")
+                self.quit()
+                return False
+
+            GLib.timeout_add(900, _take_shot)
 
 
 def run_gui() -> int:
