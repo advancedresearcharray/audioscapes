@@ -6,6 +6,21 @@ It equalizes, compresses, and lifts buried low, mid, and high so thin tracks fil
 
 The engine is **Cascade EQ** on PipeWire, using **LSP** plugins (the same DSP family Easy Effects uses): Graphic Equalizer x16 Stereo, Compressor Stereo, and Limiter Stereo. The control panel is a native GTK4 / libadwaita app.
 
+## Download
+
+Ubuntu 24.04 (or similar). Get the latest zip from **[Releases](https://github.com/advancedresearcharray/audioscapes/releases/latest)**, unzip it, then:
+
+```bash
+cd audioscapes-*
+sudo apt install pipewire pipewire-pulse wireplumber lsp-plugins-lv2 \
+  gstreamer1.0-plugins-bad gstreamer1.0-pipewire python3-gi gir1.2-gtk-4.0 gir1.2-adw-1
+./install.sh
+cascade-eq gui
+cascade-eq enable
+```
+
+That link always points at the newest build. You can also clone the repo if you prefer git.
+
 ## Requirements (Ubuntu 24.04)
 
 These are typically already present if you use Easy Effects or GNOME:
@@ -23,8 +38,10 @@ sudo apt install pipewire pipewire-pulse wireplumber lsp-plugins-lv2 \
 
 ## Install
 
+If you downloaded a release zip, use the **Download** steps above. From a git checkout:
+
 ```bash
-cd /path/to/cascade-eq
+cd /path/to/audioscapes
 ./install.sh
 cascade-eq gui
 ```
