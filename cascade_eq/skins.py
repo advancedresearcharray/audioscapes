@@ -312,7 +312,7 @@ scrollbar trough {{ background: {c["scroll_trough"]}; }}
 _EIGHTIES = {
     "id": "1980s",
     "label": "1980s Fluorescent",
-    "brand_name": "Panasonic",
+    "brand_name": "SONIC-RAK",
     "tagline": "HI-FI COMPONENT SYSTEM",
     "light": False,
     "glow": True,

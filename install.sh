@@ -31,7 +31,7 @@ fi
 systemctl --user daemon-reload >/dev/null 2>&1 || true
 
 cat <<EOF
-Installed Cascade EQ.
+Installed SONIC-RAK (Cascade EQ).
 
 Run the control panel:
   cascade-eq gui

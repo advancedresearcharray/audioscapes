@@ -1,12 +1,12 @@
 # Audioscapes
 
-Hear more of every song on Linux. Audioscapes is a vintage audio rack that sits between your apps and your speakers, headphones, or USB interface and shapes the whole mix — not just one player.
+Hear more of every song on Linux. Audioscapes is a **SONIC-RAK** vintage audio rack that sits between your apps and your speakers, headphones, or USB interface and shapes the whole mix — not just one player.
 
 It equalizes, compresses, and lifts buried low, mid, and high so thin tracks fill out. You get a 16-band graphic EQ with a live analyzer and AUTO, a 3-band tone stack, dynamics, FX, output routing, and a cassette-style deck for recording and radio mixes. Closing the panel does not stop processing.
 
-The engine is **Cascade EQ** on PipeWire, using **LSP** plugins (the same DSP family Easy Effects uses): Graphic Equalizer x16 Stereo, Compressor Stereo, and Limiter Stereo. The control panel is a native GTK4 / libadwaita app.
+The engine is **Cascade EQ** on PipeWire, using **LSP** plugins (the same DSP family Easy Effects uses): Graphic Equalizer x16 Stereo, Compressor Stereo, and Limiter Stereo. The control panel is a native GTK4 / libadwaita SONIC-RAK app.
 
-![Audioscapes vintage audio rack](docs/audioscapes-rack.png)
+![SONIC-RAK audio rack](docs/audioscapes-rack.png)
 
 ## Download
 
@@ -69,7 +69,7 @@ Every subcommand supports `--help` with examples. `--dry-run` prints the plan wi
 
 `enable` creates a virtual sink named `cascade_eq`, points it at your current hardware output (speakers, headphones, Bluetooth), and makes it the default device so every app is processed.
 
-The processed mix can be recorded to lossless (FLAC, WAV, WavPack, AIFF) or lossy (MP3, Ogg Vorbis, Opus, AAC) files. Model **370** is drawn as a Panasonic RS-TR575 dual cassette deck and plays files (including `radio-mix.flac`) through the `cascade_eq` sink so they run the same EQ as system audio. Use EJECT 1 / EJECT 2 to load wells, or RADIO MIX to seat the last mix in the selected deck. **HIGH SPEED DUB** plays the source well at 2× through the rack, records it, restores a 1× tape, and loads the other well. With **DOLBY B** off, cassette playback uses tape color (high-end roll-off and wow). The graphic EQ shows a live 16-band RTA; **AUTO** stays on and listens every 4 beats, then flattens loud bands. Press AUTO again to stop. Cassette tracks use their analyzed BPM; otherwise the live tempo guess is used.
+The processed mix can be recorded to lossless (FLAC, WAV, WavPack, AIFF) or lossy (MP3, Ogg Vorbis, Opus, AAC) files. Model **370** is the SONIC-RAK dual cassette deck and plays files (including `radio-mix.flac`) through the `cascade_eq` sink so they run the same EQ as system audio. Use EJECT 1 / EJECT 2 to load wells, or RADIO MIX to seat the last mix in the selected deck. **HIGH SPEED DUB** plays the source well at 2× through the rack, records it, restores a 1× tape, and loads the other well. With **DOLBY B** off, cassette playback uses tape color (high-end roll-off and wow). The graphic EQ shows a live 16-band RTA; **AUTO** stays on and listens every 4 beats, then flattens loud bands. Press AUTO again to stop. Cassette tracks use their analyzed BPM; otherwise the live tempo guess is used.
 
 **Profiles** set the whole rack for one intent (EQ, dynamics, expander, preamp, FX, and enhance together). On the 310 monitor unit pick **PROFILE**, or:
 

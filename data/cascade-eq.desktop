@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Cascade EQ
-Comment=System-wide equalizer, compressor, and limiter
+Comment=SONIC-RAK system-wide equalizer, compressor, and limiter
 Exec=cascade-eq gui
 Icon=cascade-eq
 Terminal=false

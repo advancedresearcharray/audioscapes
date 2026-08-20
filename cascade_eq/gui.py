@@ -1254,7 +1254,7 @@ def _pana_switch(cr, x: float, y: float, label: str, on: bool) -> None:
 
 
 class RackKnobView(CairoDraw):
-    """Panasonic-style rotary dial. Mix knobs snap to 12 even ticks (1–12)."""
+    """SONIC-RAK rotary dial. Mix knobs snap to 12 even ticks (1–12)."""
 
     def __init__(
         self, label: str, value: float = 1.0, on_change=None, steps: int = MIX_STEPS, bipolar: bool = False
@@ -1430,7 +1430,7 @@ class RackFaderView(CairoDraw):
 
 
 class CassetteDeckView(CairoDraw):
-    """Panasonic RS-TR575-style dual cassette faceplate."""
+    """SONIC-RAK dual cassette faceplate."""
 
     # IEC 60094 compact cassette is 100.4 × 63.8 mm.
     _CASSETTE_ASPECT = 100.4 / 63.8
@@ -1674,7 +1674,7 @@ class CassetteDeckView(CairoDraw):
             _src(cr, "door_title")
             cr.move_to(x + 10, y + 16)
             cr.show_text(f"BAY {index + 1}")
-            self._tdk_sa(cr, ix + 4, iy + 4, iw - 8, ih - 8, self.paths[index], index)
+            self._ctk_sa(cr, ix + 4, iy + 4, iw - 8, ih - 8, self.paths[index], index)
             return
         _rrect(cr, ix, iy, iw, ih, 14 if form == "mesh" else 3)
         cr.set_source_rgb(0.04, 0.045, 0.05)
@@ -1703,7 +1703,7 @@ class CassetteDeckView(CairoDraw):
         cr.set_source_rgb(0.25, 1.0, 0.78) if playing_here else cr.set_source_rgb(0.32, 0.36, 0.36)
         cr.move_to(x + w - 34, y + 16)
         cr.show_text("►")
-        self._tdk_sa(cr, ix + 4, iy + 4, iw - 8, ih - 8, self.paths[index], index)
+        self._ctk_sa(cr, ix + 4, iy + 4, iw - 8, ih - 8, self.paths[index], index)
         cr.select_font_face("Cantarell", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
         cr.set_font_size(10)
         cr.set_source_rgb(0.78, 0.82, 0.86)
@@ -1787,7 +1787,7 @@ class CassetteDeckView(CairoDraw):
     def _knob(self, cr, cx: float, cy: float, r: float, pos: float) -> None:
         _pana_knob(cr, cx, cy, r, pos)
 
-    def _tdk_sa(self, cr, x: float, y: float, w: float, h: float, path: Path | None, index: int) -> None:
+    def _ctk_sa(self, cr, x: float, y: float, w: float, h: float, path: Path | None, index: int) -> None:
         # IEC 60094 compact cassette is 100.4 × 63.8 mm.
         aspect = 100.4 / 63.8
         ch = min(h, w / aspect)
@@ -1819,7 +1819,7 @@ class CassetteDeckView(CairoDraw):
         cr.rectangle(x + w * 0.08, y - 1, tab_w, tab_h)
         cr.rectangle(x + w * 0.85, y - 1, tab_w, tab_h)
         cr.fill()
-        # Five Philips screws, as on TDK's mid-80s shells.
+        # Five Philips screws on the shell corners and bottom center.
         for sx, sy in (
             (x + w * 0.07, y + h * 0.10),
             (x + w * 0.93, y + h * 0.10),
@@ -1839,7 +1839,7 @@ class CassetteDeckView(CairoDraw):
             cr.line_to(sx + h * 0.016, sy)
             cr.stroke()
 
-        # 1985–87 TDK SA gold foil A-side label.
+        # CTK SA gold foil A-side label.
         lx, ly, lw, lh = x + w * 0.08, y + h * 0.07, w * 0.84, h * 0.36
         _rrect(cr, lx, ly, lw, lh, 2.2)
         foil = cairo.LinearGradient(lx, ly, lx + lw, ly + lh)
@@ -1856,7 +1856,7 @@ class CassetteDeckView(CairoDraw):
         cr.select_font_face("Cantarell", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
         cr.set_font_size(max(11, h * 0.16))
         cr.move_to(lx + lw * 0.04, ly + lh * 0.48)
-        cr.show_text("TDK")
+        cr.show_text("CTK")
         cr.set_font_size(max(18, h * 0.28))
         sa = "SA"
         tw = cr.text_extents(sa)[4]
@@ -1864,7 +1864,7 @@ class CassetteDeckView(CairoDraw):
         cr.show_text(sa)
         cr.set_font_size(max(7, h * 0.09))
         cr.move_to(lx + lw * 0.04, ly + lh * 0.78)
-        cr.show_text("SUPER AVILYN")
+        cr.show_text("HIGH BIAS")
         cr.set_font_size(max(6.5, h * 0.08))
         cr.move_to(lx + lw * 0.42, ly + lh * 0.78)
         cr.show_text("IEC TYPE II   HIGH POSITION")
@@ -1891,7 +1891,7 @@ class CassetteDeckView(CairoDraw):
         cr.move_to(sx + 6, sy + sh * 0.68)
         cr.show_text(path.stem.upper()[:24])
 
-        # Twin round windows and oxide pancakes — TDK SA 82–86 style.
+        # Twin round windows and oxide pancakes.
         frac = self.frac if index == self.active else 0.08
         spinning = index == self.active and self.playing
         hub_y = y + h * 0.72
@@ -1993,7 +1993,7 @@ class CassetteDeckView(CairoDraw):
 
 
 class VintageLa2aView(CairoDraw):
-    """Panasonic-style compressor or preamp faceplate."""
+    """SONIC-RAK compressor or preamp faceplate."""
 
     def __init__(self, kind: str) -> None:
         self.kind = kind

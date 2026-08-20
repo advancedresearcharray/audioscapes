@@ -1,5 +1,5 @@
 [Unit]
-Description=Cascade EQ system-wide audio processor
+Description=SONIC-RAK system-wide audio processor
 After=pipewire.service pipewire-pulse.service
 Wants=pipewire.service
 
