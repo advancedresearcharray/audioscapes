@@ -1,0 +1,9 @@
+.vendor/
+__pycache__/
+*.py[cod]
+*.log
+.venv/
+dist/
+build/
+*.egg-info/
+.firecrawl/
