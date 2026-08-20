@@ -83,7 +83,7 @@ cascade-eq digital clarity
 cascade-eq digital --off
 ```
 
-Record a **session** of multiple songs with silence between them, then split tracks and radio-mix. After **SPLIT**, the 370 cassette deck lists those songs in **TRACK**; **PLAY TRACK** previews the selected cut through the rack. Default **pop** mix opens on the lowest-energy song, climbs sequential root keys, and throws an **8-count echo** of the incoming track before that song starts. Internal audio stays 32-bit float and the mix is written as **24-bit FLAC**. Levels are peak-matched once; the mix is never pumped up to a loud median. **House** is the long 32-count DJ blend with Mixed In Key order.
+Record a **session** of multiple songs with silence between them, then split tracks and radio-mix. After **SPLIT**, the 370 cassette deck lists those songs in **TRACK**; **PLAY TRACK** previews the selected cut through the rack. Default **pop** mix opens on the lowest-energy song, climbs sequential root keys, and throws an **8-count echo** of the incoming track before that song starts. Internal audio stays 32-bit float and the mix is written as **24-bit FLAC**. Levels are peak-matched once; the mix is never pumped up to a loud median. **House** is the long 32-count DJ blend in compatible key and energy order.
 
 ```bash
 cascade-eq record formats
