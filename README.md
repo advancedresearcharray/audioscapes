@@ -1,8 +1,10 @@
-# Cascade EQ
+# Audioscapes
 
-System-wide equalizer for Ubuntu (PipeWire) with a 16-band graphic EQ, compressor, limiter, and built-in presets.
+Hear more of every song on Linux. Audioscapes is a vintage audio rack that sits between your apps and your speakers, headphones, or USB interface and shapes the whole mix — not just one player.
 
-Audio is processed with **LSP** plugins (the same DSP family Easy Effects uses): Graphic Equalizer x16 Stereo, Compressor Stereo, and Limiter Stereo. The control panel is a native GTK4 / libadwaita app. Closing the window does not stop processing.
+It equalizes, compresses, and lifts buried low, mid, and high so thin tracks fill out. You get a 16-band graphic EQ with a live analyzer and AUTO, a 3-band tone stack, dynamics, FX, output routing, and a cassette-style deck for recording and radio mixes. Closing the panel does not stop processing.
+
+The engine is **Cascade EQ** on PipeWire, using **LSP** plugins (the same DSP family Easy Effects uses): Graphic Equalizer x16 Stereo, Compressor Stereo, and Limiter Stereo. The control panel is a native GTK4 / libadwaita app.
 
 ## Requirements (Ubuntu 24.04)
 
