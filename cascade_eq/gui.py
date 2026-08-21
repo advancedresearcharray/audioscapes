@@ -59,7 +59,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 from . import APP_ID, APP_NAME
 from .client import ClientError, ensure_daemon, meters, ping, request
-from .dsp import BAND_LABELS, CHAIN_STAGES, MASTER_STEPS, MIX_STEPS, TONE_PROFILES, apply_tone_profile, auto_reveal_from_rta, clamp_master_db, default_blend, default_ride, default_tone, default_tone_auto, empty_bands, four_beat_seconds, keep_dly_tone, keep_mix, master_db_from_knob, master_knob_value, match_tone_preset, mix_amount, mix_eq_lifts, mix_levels, normalize_chain, normalize_tone, normalize_tone_auto, set_mix, tone_profile_names
+from .dsp import AUTO_EQ_BEATS, BAND_LABELS, CHAIN_STAGES, MASTER_STEPS, MIX_STEPS, TONE_PROFILES, apply_tone_profile, auto_reveal_from_rta, clamp_master_db, default_blend, default_ride, default_tone, default_tone_auto, empty_bands, four_beat_seconds, keep_dly_tone, keep_mix, master_db_from_knob, master_knob_value, match_tone_preset, mix_amount, mix_eq_lifts, mix_levels, normalize_chain, normalize_tone, normalize_tone_auto, set_mix, tone_profile_names
 from .paths import load_state, save_state, sessions_dir
 from .presets import DIGITAL_KEYS, apply_preset, normalize_digital, preset_names
 from .pulse import PulseError, current_output_role, default_sink, is_virtual_name, output_inventory, pick_hardware_sink, resolve_output_role, set_sink_port
@@ -483,7 +483,7 @@ class EqWaveView(CairoDraw):
             cr.set_font_size(12)
             _src(cr, "silk")
             cr.move_to(left + 4, 16)
-            cr.show_text("GRAPHIC  EQUALIZER  ·  AUTO / 4 BEATS")
+            cr.show_text("GRAPHIC  EQUALIZER  ·  AUTO / 1 BEAT")
             slot_w = max(8, inner_w / n * 0.38)
             for i, db in enumerate(curve):
                 x = left + i / max(1, n - 1) * inner_w
@@ -2133,7 +2133,8 @@ class CascadeWindow(Adw.ApplicationWindow):
         self._live_bpm = 120.0
         self._auto_listen: list[list[float]] = []
         self.state["auto_eq"] = {"enabled": False, "lift": empty_bands()}
-        self._tone_auto_on = bool(normalize_tone_auto(self.state.get("tone_auto")).get("enabled"))
+        self._tone_auto_on = bool(normalize_tone_auto(self.state.get("tone_auto")).get("enabled")) or str(self.state.get("tone_preset") or "") == "AUTO"
+        self._want_tone_auto = self._tone_auto_on
         self._last_rec_path = ""
         self._expanders: dict[str, Gtk.Expander] = {}
         self._meter_n = 0
@@ -2273,6 +2274,7 @@ class CascadeWindow(Adw.ApplicationWindow):
         tone_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.tone_knobs = {}
         self.tone_readouts = {}
+        self._suppress = True
         for key, label in (("low_db", "LOW"), ("mid_db", "MID"), ("high_db", "HIGH")):
             col, knob, readout = self._db_knob(label, tone_state[key], lambda v, k=key: self._on_tone_gain(k, v))
             self.tone_knobs[key] = knob
@@ -2283,6 +2285,7 @@ class CascadeWindow(Adw.ApplicationWindow):
             float(self.state.get("master_db", 0)),
             self._on_master_gain,
         )
+        self._suppress = False
         tone_row.append(gain_col)
         tone_ctrl = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         tone_ctrl.set_valign(Gtk.Align.CENTER)
@@ -2398,6 +2401,8 @@ class CascadeWindow(Adw.ApplicationWindow):
             self.cassette_note.set_text(f"Deck 1  {mix.name}")
         GLib.timeout_add(700, self._refresh_status)
         GLib.timeout_add(33, self._tick_meters)
+        if self._want_tone_auto:
+            GLib.idle_add(self._boot_auto_pair)
         self._refresh_status()
         self._apply_skin(sid, persist=False)
 
@@ -3438,7 +3443,7 @@ class CascadeWindow(Adw.ApplicationWindow):
         frame.append(self.cassette)
         inner.append(frame)
         self.cassette_note = Gtk.Label(
-            label="REC captures the mix. HIGH SPEED DUB copies Deck 1 through the rack into Deck 2 at 2×. AUTO on the EQ listens every 4 beats and lifts buried detail without changing your curve.",
+            label="REC captures the mix. HIGH SPEED DUB copies Deck 1 through the rack into Deck 2 at 2×. AUTO on the EQ listens every beat and lifts buried detail without changing your curve.",
             xalign=0,
         )
         self.cassette_note.add_css_class("field-label")
@@ -4139,10 +4144,24 @@ class CascadeWindow(Adw.ApplicationWindow):
             return track
         return max(70.0, min(180.0, float(self._live_bpm or 120.0)))
 
+    def _boot_auto_pair(self) -> bool:
+        if not hasattr(self, "btn_tone_auto"):
+            return False
+        self._start_tone_auto()
+        return False
+
     def _on_eq_auto(self, *_args) -> None:
         if self._auto_on:
+            if getattr(self, "_tone_auto_on", False):
+                self._stop_tone_auto()
+                return
             self._stop_auto_eq()
             return
+        self._start_eq_auto()
+
+    def _start_eq_auto(self) -> bool:
+        if self._auto_on or not hasattr(self, "btn_auto_eq"):
+            return False
         if not self.enable.get_active():
             self.enable.set_active(True)
         self._auto_on = True
@@ -4159,7 +4178,12 @@ class CascadeWindow(Adw.ApplicationWindow):
         if hasattr(self, "eq_wave"):
             self.eq_wave.set_lifts(self.state["auto_eq"]["lift"])
         self._dirty()
-        self._begin_auto_bar()
+        bpm = self._eq_auto_bpm()
+        if getattr(self, "_tone_auto_on", False):
+            self.status.set_text(f"TONE+EQ AUTO  ·  1 beat @ {bpm:.0f} BPM")
+        else:
+            self.status.set_text(f"AUTO  ·  1 beat ride @ {bpm:.0f} BPM")
+        return False
 
     def _stop_auto_eq(self) -> None:
         self._auto_on = False
@@ -4177,9 +4201,12 @@ class CascadeWindow(Adw.ApplicationWindow):
     def _begin_auto_bar(self) -> None:
         bpm = self._eq_auto_bpm()
         self._auto_listen = []
-        self._auto_until = time.time() + four_beat_seconds(bpm)
+        self._auto_until = time.time() + four_beat_seconds(bpm, AUTO_EQ_BEATS)
         bar = f"  ·  bar {self._auto_bars}" if self._auto_bars else ""
-        self.status.set_text(f"AUTO  ·  compressing low/mid/high up @ {bpm:.0f} BPM{bar}")
+        if getattr(self, "_tone_auto_on", False):
+            self.status.set_text(f"TONE+EQ AUTO  ·  1 beat @ {bpm:.0f} BPM{bar}")
+        else:
+            self.status.set_text(f"AUTO  ·  1 beat ride @ {bpm:.0f} BPM{bar}")
 
     def _finish_auto_eq(self) -> None:
         frames = self._auto_listen
@@ -4320,11 +4347,7 @@ class CascadeWindow(Adw.ApplicationWindow):
     def _cancel_tone_auto_from_knob(self) -> None:
         if not getattr(self, "_tone_auto_on", False):
             return
-        self._tone_auto_on = False
-        if hasattr(self, "btn_tone_auto"):
-            self.btn_tone_auto.remove_css_class("hot")
-            self.btn_tone_auto.set_label("AUTO")
-        self.status.set_text("TONE AUTO  ·  off")
+        self._stop_tone_auto()
 
     def _on_tone_preset(self, *_args) -> None:
         if self._suppress:
@@ -4352,42 +4375,62 @@ class CascadeWindow(Adw.ApplicationWindow):
         self._suppress = False
         spec = TONE_PROFILES.get(name) or {}
         self.status.set_text(f"TONE  ·  {name}  ·  {spec.get('note', '')}".strip(" ·"))
-        self._dirty()
+        if name == "AUTO":
+            self._start_tone_auto()
+        else:
+            self._dirty()
 
     def _on_tone_auto(self, *_args) -> None:
         if self._tone_auto_on:
-            self._tone_auto_on = False
+            self._stop_tone_auto()
+            return
+        self._start_tone_auto()
+
+    def _stop_tone_auto(self) -> None:
+        if not getattr(self, "_tone_auto_on", False):
+            return
+        self._tone_auto_on = False
+        if hasattr(self, "btn_tone_auto"):
             self.btn_tone_auto.remove_css_class("hot")
             self.btn_tone_auto.set_label("AUTO")
-            self.status.set_text("TONE AUTO  ·  off")
-            self._suppress = True
-            tone = normalize_tone(self.state.get("tone"))
-            for key, knob in self.tone_knobs.items():
-                db = float(tone.get(key, 0.0))
-                knob.set_value(master_knob_value(db))
-                readout = (self.tone_readouts or {}).get(key)
-                if readout is not None:
-                    readout.set_text(f"{clamp_master_db(db):+.0f} dB")
-            db = clamp_master_db(self.state.get("master_db", 0.0))
-            self.master_knob.set_value(master_knob_value(db))
-            self._sync_master_readout(db)
-            self._suppress = False
+        self._suppress = True
+        tone = normalize_tone(self.state.get("tone"))
+        for key, knob in self.tone_knobs.items():
+            db = float(tone.get(key, 0.0))
+            knob.set_value(master_knob_value(db))
+            readout = (self.tone_readouts or {}).get(key)
+            if readout is not None:
+                readout.set_text(f"{clamp_master_db(db):+.0f} dB")
+        db = clamp_master_db(self.state.get("master_db", 0.0))
+        self.master_knob.set_value(master_knob_value(db))
+        self._sync_master_readout(db)
+        self._suppress = False
+        if self._auto_on:
+            self._stop_auto_eq()
+        else:
             self._dirty()
-            return
+        self.status.set_text("TONE AUTO  ·  off")
+
+    def _start_tone_auto(self) -> None:
         if not self.enable.get_active():
             self.enable.set_active(True)
         if hasattr(self, "ride"):
             self.ride.set_active(True)
-        tone = normalize_tone(self.state.get("tone"))
-        for key, knob in self.tone_knobs.items():
-            tone[key] = master_db_from_knob(knob.value)
-        self.state["tone"] = tone
-        self.state["master_db"] = master_db_from_knob(self.master_knob.value)
-        self.state["tone_preset"] = match_tone_preset(tone, self.state["master_db"])
+        already = bool(self._tone_auto_on)
+        if not already:
+            tone = normalize_tone(self.state.get("tone"))
+            for key, knob in self.tone_knobs.items():
+                tone[key] = master_db_from_knob(knob.value)
+            self.state["tone"] = tone
+            self.state["master_db"] = master_db_from_knob(self.master_knob.value)
+            self.state["tone_preset"] = match_tone_preset(tone, self.state["master_db"])
         self._tone_auto_on = True
         self.btn_tone_auto.add_css_class("hot")
-        self.status.set_text("TONE AUTO  ·  riding knobs, keeping peaks under the ceiling")
-        self._dirty()
+        self.status.set_text("TONE AUTO  ·  riding every beat  ·  EQ AUTO on")
+        was_eq = self._auto_on
+        self._start_eq_auto()
+        if already or was_eq:
+            self._dirty()
 
     def _dirty(self, *_args) -> None:
         if self._suppress:
@@ -4480,14 +4523,18 @@ class CascadeWindow(Adw.ApplicationWindow):
         rta = list(data.get("rta") or [])
         if want_rta and hasattr(self, "eq_wave"):
             self.eq_wave.auto_on = bool(self._auto_on)
-            lifts = ((self.state.get("auto_eq") or {}).get("lift") or empty_bands()) if self._auto_on else empty_bands()
+            live_lifts = list(data.get("eq_lifts") or [])
+            if self._auto_on and live_lifts:
+                self.state["auto_eq"] = {"enabled": True, "lift": live_lifts[:16]}
+                lifts = live_lifts[:16]
+            else:
+                lifts = ((self.state.get("auto_eq") or {}).get("lift") or empty_bands()) if self._auto_on else empty_bands()
             self.eq_wave.set_lifts(list(lifts)[:16])
             self.eq_wave.set_rta(rta)
-        if self._auto_on or self._auto_until:
-            if rta and max(rta) > 0.02:
-                self._auto_listen.append(rta[:16])
-            if self._auto_until and time.time() >= self._auto_until:
-                self._finish_auto_eq()
+        if self._auto_on and getattr(self, "_tone_auto_on", False) and self._meter_n % 15 == 0:
+            intent = str(data.get("auto_intent") or "").strip().upper()
+            tag = f"  ·  {intent}" if intent else ""
+            self.status.set_text(f"TONE+EQ AUTO{tag}  ·  1 beat @ {self._eq_auto_bpm():.0f} BPM")
         if self._unit_open("370") and hasattr(self, "cassette"):
             self.cassette.set_deck(
                 self._tapes,

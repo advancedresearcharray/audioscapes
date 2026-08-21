@@ -109,6 +109,9 @@ def meters(*, rta: bool = False) -> dict:
         "tone_auto": False,
         "tone_scale": 1.0,
         "tone_live": {"low_db": 0.0, "mid_db": 0.0, "high_db": 0.0, "gain_db": 0.0},
+        "eq_auto": False,
+        "eq_lifts": [0.0] * 16,
+        "auto_intent": "",
     }
     try:
         return _send_raw({"cmd": "meters", "rta": bool(rta)}, timeout=0.25)

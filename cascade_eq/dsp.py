@@ -164,6 +164,13 @@ TONE_PROFILES: dict[str, dict] = {
         "gain_db": 2.0,
         "note": "Speech band forward, less rumble.",
     },
+    "AUTO": {
+        "low_db": 9.0,
+        "mid_db": 6.0,
+        "high_db": 5.0,
+        "gain_db": 8.0,
+        "note": "Reads the mix every beat and pushes tone + EQ toward what the track wants.",
+    },
 }
 
 
@@ -184,6 +191,10 @@ def apply_tone_profile(state: dict, name: str) -> dict:
     out["tone"] = normalize_tone(spec)
     out["master_db"] = clamp_master_db(spec["gain_db"])
     out["tone_preset"] = key
+    if key == "AUTO":
+        auto = normalize_tone_auto(out.get("tone_auto"))
+        auto["enabled"] = True
+        out["tone_auto"] = auto
     return out
 
 
@@ -373,27 +384,27 @@ def empty_bands() -> list[float]:
     return [0.0] * len(BANDS)
 
 
-AUTO_EQ_BEATS = 4
+AUTO_EQ_BEATS = 1
 
 
 def four_beat_seconds(bpm: float, beats: int = AUTO_EQ_BEATS) -> float:
     """Duration of a listen window: `beats` at the guessed tempo."""
     tempo = max(70.0, min(180.0, float(bpm) if bpm else 120.0))
     count = max(1, int(beats))
-    return max(1.2, min(3.6, count * 60.0 / tempo))
+    return max(0.28, min(3.6, count * 60.0 / tempo))
 
 
 def auto_reveal_from_rta(
     rta: Sequence[float],
     previous: Sequence[float] | None = None,
-    strength: float = 0.9,
+    strength: float = 1.0,
 ) -> list[float]:
     """Compress quiet low/mid/high up toward the loudest region."""
     n = len(BANDS)
-    floor_db = 6.0
+    amt = max(0.0, min(1.0, float(strength)))
+    floor_db = 5.0 + 4.0 * amt
     levels = [max(0.0, float(v)) for v in (list(rta) + [0.0] * n)[:n]]
     prev = [max(0.0, float(v)) for v in (list(previous or empty_bands()) + [0.0] * n)[:n]]
-    amt = max(0.0, min(1.0, float(strength)))
     if max(levels, default=0.0) < 0.008:
         held = [max(floor_db, v) for v in prev] if any(prev) else [floor_db] * n
         return [max(0.0, min(12.0, round(v * 2.0) / 2.0)) for v in held]
@@ -406,7 +417,7 @@ def auto_reveal_from_rta(
     energies = [region_mean(a, b) for a, b in regions]
     peak_e = max(max(energies), 1e-9)
     region_boost = [
-        min(12.0, 20.0 * math.log10(peak_e / max(e, 1e-9)) * amt) for e in energies
+        min(12.0, 20.0 * math.log10(peak_e / max(e, 1e-9)) * (0.85 + 0.55 * amt)) for e in energies
     ]
     measured = [20.0 * math.log10(max(v, 1e-6)) for v in levels]
     peak_m = max(measured)
@@ -418,11 +429,191 @@ def auto_reveal_from_rta(
             rb = region_boost[1]
         else:
             rb = region_boost[2]
-        depth = max(0.0, min(1.0, (peak_m - meas) / 28.0))
-        target = min(12.0, floor_db + rb + depth * 6.0 * amt)
-        blended = 0.15 * old + 0.85 * target
+        depth = max(0.0, min(1.0, (peak_m - meas) / 22.0))
+        target = min(12.0, floor_db + rb + depth * (7.0 + 4.0 * amt))
+        blended = 0.10 * old + 0.90 * target
         out.append(max(0.0, min(12.0, round(blended * 2.0) / 2.0)))
     return out
+
+
+def rta_region_energies(rta: Sequence[float]) -> tuple[float, float, float]:
+    n = len(BANDS)
+    levels = [max(0.0, float(v)) for v in (list(rta) + [0.0] * n)[:n]]
+
+    def mean(start: int, end: int) -> float:
+        chunk = levels[start:end]
+        return sum(chunk) / max(1, len(chunk))
+
+    return mean(0, 7), mean(7, 11), mean(11, 16)
+
+
+def _rta_levels(rta: Sequence[float]) -> list[float]:
+    n = len(BANDS)
+    return [max(0.0, float(v)) for v in (list(rta) + [0.0] * n)[:n]]
+
+
+def _slice_mean(levels: Sequence[float], start: int, end: int) -> float:
+    chunk = list(levels[start:end])
+    return sum(chunk) / max(1, len(chunk))
+
+
+INTENT_EQ_BIAS: dict[str, list[float]] = {
+    "thin": [3.5, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0, 1.0, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 3.5, 3.0],
+    "club": [2.5, 3.5, 3.5, 3.0, 2.0, 1.0, 0.5, 0.0, 0.0, 0.5, 1.0, 1.5, 2.5, 3.5, 3.5, 2.5],
+    "disco": [2.0, 2.5, 2.5, 2.0, 1.5, 1.0, 0.5, 0.5, 0.5, 1.0, 1.5, 2.0, 2.5, 3.5, 3.5, 3.0],
+    "voice": [0.0, 0.0, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.5, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0, 0.5],
+    "bright": [3.5, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0, 0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    "ballad": [1.5, 2.0, 2.5, 2.5, 2.0, 1.5, 1.5, 2.0, 2.5, 2.5, 2.0, 1.5, 1.0, 0.5, 0.5, 0.5],
+    "rock": [1.5, 2.0, 2.5, 2.5, 1.5, 0.5, 0.5, 1.0, 1.5, 2.5, 3.0, 3.5, 3.5, 2.5, 1.5, 1.0],
+    "lift": [2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5],
+    "full": [2.5, 3.0, 2.5, 2.0, 1.5, 1.0, 1.0, 1.5, 2.0, 2.5, 2.5, 2.5, 2.5, 3.0, 3.0, 2.5],
+}
+
+
+def detect_mix_intent(
+    rta: Sequence[float],
+    bpm: float = 120.0,
+    rms_db: float = -18.0,
+    peak_db: float = -8.0,
+) -> tuple[str, dict]:
+    """Guess what the track wants: body, punch, air, voice, etc."""
+    levels = _rta_levels(rta)
+    parts = {
+        "sub": _slice_mean(levels, 0, 3),
+        "bass": _slice_mean(levels, 3, 7),
+        "lowmid": _slice_mean(levels, 7, 9),
+        "mid": _slice_mean(levels, 9, 11),
+        "presence": _slice_mean(levels, 11, 13),
+        "air": _slice_mean(levels, 13, 16),
+    }
+    total = sum(parts.values()) + 1e-9
+    share = {key: val / total for key, val in parts.items()}
+    low = share["sub"] + share["bass"]
+    mid = share["lowmid"] + share["mid"]
+    high = share["presence"] + share["air"]
+    tempo = max(70.0, min(180.0, float(bpm) if bpm else 120.0))
+    loud = max(levels, default=0.0)
+    if loud < 0.02 or rms_db < -42.0:
+        return "lift", {"low_db": 9.0, "mid_db": 6.0, "high_db": 5.0, "gain_db": 10.0}
+    if mid > 0.40 and low < 0.30:
+        return "voice", {"low_db": 0.0, "mid_db": 9.0, "high_db": 5.0, "gain_db": 4.0}
+    if high > 0.44 and low < 0.30:
+        return "bright", {"low_db": 10.0, "mid_db": 4.0, "high_db": 1.5, "gain_db": 6.0}
+    if low < 0.26 and high < 0.24:
+        return "thin", {"low_db": 11.0, "mid_db": 5.0, "high_db": 7.0, "gain_db": 9.0}
+    if low > 0.42 and 108.0 <= tempo <= 138.0:
+        return "club", {"low_db": 11.0, "mid_db": 2.0, "high_db": 6.5, "gain_db": 8.0}
+    if low > 0.38 and high > 0.32:
+        return "disco", {"low_db": 10.0, "mid_db": 3.0, "high_db": 7.5, "gain_db": 7.0}
+    if tempo < 96.0 and high < 0.26:
+        return "ballad", {"low_db": 6.0, "mid_db": 8.0, "high_db": 2.0, "gain_db": 4.0}
+    if share["presence"] > 0.20 and 88.0 <= tempo <= 155.0:
+        return "rock", {"low_db": 6.5, "mid_db": 4.0, "high_db": 8.0, "gain_db": 6.0}
+    if rms_db < -24.0:
+        return "lift", {"low_db": 9.0, "mid_db": 6.0, "high_db": 5.0, "gain_db": 10.0}
+    _ = peak_db
+    return "full", {"low_db": 9.0, "mid_db": 6.0, "high_db": 4.5, "gain_db": 7.0}
+
+
+def pair_auto_from_rta(
+    rta: Sequence[float],
+    *,
+    tone_target: dict | None,
+    master_db: float,
+    prev_tone: dict | None = None,
+    prev_lifts: Sequence[float] | None = None,
+    prev_scale: float = 1.0,
+    headroom_db: float = 6.0,
+    rms_db: float = -18.0,
+    peak_db: float = -8.0,
+    bpm: float = 120.0,
+    paired: bool = True,
+) -> tuple[list[float], dict, float, float, str]:
+    """One-beat TONE + EQ step aimed at what the music is missing."""
+    hint = normalize_tone(tone_target)
+    hint_gain = clamp_master_db(master_db)
+    intent, home = detect_mix_intent(rta, bpm=bpm, rms_db=rms_db, peak_db=peak_db)
+    low_e, mid_e, high_e = rta_region_energies(rta)
+    peak_e = max(low_e, mid_e, high_e, 1e-9)
+    levels = _rta_levels(rta)
+    loud = max(levels, default=0.0)
+
+    def missing(energy: float) -> float:
+        return min(10.0, 20.0 * math.log10(peak_e / max(energy, 1e-9)))
+
+    raw = {
+        "low_db": clamp_master_db(0.85 * home["low_db"] + 0.15 * hint["low_db"]),
+        "mid_db": clamp_master_db(0.85 * home["mid_db"] + 0.15 * hint["mid_db"]),
+        "high_db": clamp_master_db(0.85 * home["high_db"] + 0.15 * hint["high_db"]),
+    }
+    if intent in {"thin", "bright", "lift", "full", "club", "disco"}:
+        raw["low_db"] = clamp_master_db(raw["low_db"] + 0.55 * missing(low_e))
+    if intent in {"thin", "voice", "ballad", "lift", "full", "rock"}:
+        raw["mid_db"] = clamp_master_db(raw["mid_db"] + 0.48 * missing(mid_e))
+    if intent in {"thin", "club", "disco", "rock", "lift", "full", "voice"}:
+        raw["high_db"] = clamp_master_db(raw["high_db"] + 0.50 * missing(high_e))
+    if intent == "club":
+        raw["mid_db"] = clamp_master_db(min(raw["mid_db"], 3.5))
+    if intent == "bright":
+        raw["high_db"] = clamp_master_db(min(raw["high_db"], 3.0))
+    if intent == "voice":
+        raw["low_db"] = clamp_master_db(min(raw["low_db"], 2.0))
+    want_gain = 0.82 * home["gain_db"] + 0.18 * hint_gain
+    if rms_db < -22.0:
+        want_gain = min(MASTER_MAX_DB, want_gain + 2.5)
+    elif rms_db < -16.0:
+        want_gain = min(MASTER_MAX_DB, want_gain + 1.0)
+
+    try:
+        scale = max(0.50, min(1.0, float(prev_scale)))
+    except (TypeError, ValueError):
+        scale = 1.0
+    if rms_db < -48.0:
+        pass
+    elif headroom_db < 0.0:
+        scale = max(0.50, scale * 0.86)
+    elif headroom_db < 0.8:
+        scale = max(0.55, scale * 0.94)
+    else:
+        scale = min(1.0, scale + 0.14)
+        if loud < 0.14 and headroom_db > 3.0:
+            scale = min(1.0, scale + 0.06)
+
+    raw = {key: clamp_master_db(val * scale) for key, val in raw.items()}
+    gain = clamp_master_db(want_gain * scale)
+    prev = normalize_tone(prev_tone) if prev_tone else raw
+    try:
+        prev_gain = clamp_master_db((prev_tone or {}).get("gain_db", gain))
+    except (TypeError, ValueError, AttributeError):
+        prev_gain = gain
+    live = {
+        key: clamp_master_db(0.22 * float(prev.get(key, 0.0)) + 0.78 * raw[key])
+        for key in ("low_db", "mid_db", "high_db")
+    }
+    gain = clamp_master_db(0.22 * prev_gain + 0.78 * gain)
+
+    lifts = auto_reveal_from_rta(rta, prev_lifts, strength=1.0 if paired else 0.92)
+    bias = INTENT_EQ_BIAS.get(intent) or INTENT_EQ_BIAS["full"]
+    lifts = [max(0.0, min(12.0, v + b)) for v, b in zip(lifts, bias)]
+    if paired:
+        low_ol = max(0.0, live["low_db"]) * 0.12
+        mid_ol = max(0.0, live["mid_db"]) * 0.10
+        high_ol = max(0.0, live["high_db"]) * 0.10
+        trimmed: list[float] = []
+        for i, val in enumerate(lifts):
+            if i < 6:
+                cut = low_ol
+            elif i < 11:
+                cut = mid_ol
+            else:
+                cut = high_ol
+            trimmed.append(max(4.0, min(12.0, val - cut)))
+        lifts = [max(0.0, min(12.0, round(v * 2.0) / 2.0)) for v in trimmed]
+        if headroom_db < 0.4:
+            lifts = [max(0.0, min(12.0, round(v * 0.90 * 2.0) / 2.0)) for v in lifts]
+    else:
+        lifts = [max(0.0, min(12.0, round(v * 2.0) / 2.0)) for v in lifts]
+    return lifts, live, gain, scale, intent
 
 
 def mix_eq_lifts(bands: Sequence[float] | None, lifts: Sequence[float] | None) -> list[float]:

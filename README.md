@@ -2,7 +2,7 @@
 
 Hear more of every song on Linux. Audioscapes is a **SONIC-RAK** vintage audio rack that sits between your apps and your speakers, headphones, or USB interface and shapes the whole mix — not just one player.
 
-It equalizes, compresses, and lifts buried low, mid, and high so thin tracks fill out. You get a 16-band graphic EQ with a live analyzer and AUTO, LOW / MID / HIGH / GAIN knobs with **TONE** profiles (including **80s POP**: +8 low, +6 mid, +2 high, +6 gain) and a second **AUTO** that rides those knobs to a safe level, plus dynamics, FX, output routing, and a cassette-style deck for recording and radio mixes. Closing the panel does not stop processing.
+It equalizes, compresses, and lifts buried low, mid, and high so thin tracks fill out. You get a 16-band graphic EQ with a live analyzer and AUTO, plus LOW / MID / HIGH / GAIN knobs with **TONE** profiles (including **80s POP** and **AUTO**). **TONE AUTO** and **EQ AUTO** ride together every beat: they detect what the track wants (club, voice, thin, rock, and more) and push both the shelves and the graphic EQ that way. Dynamics, FX, output routing, and a cassette-style deck are in the same rack. Closing the panel does not stop processing.
 
 The engine is **Cascade EQ** on PipeWire, using **LSP** plugins (the same DSP family Easy Effects uses): Graphic Equalizer x16 Stereo, Compressor Stereo, and Limiter Stereo. The control panel is a native GTK4 / libadwaita SONIC-RAK app.
 
@@ -64,7 +64,7 @@ To add the app menu shortcut and `cascade-eq` on PATH:
 
 ```bash
 cascade-eq enable
-cascade-eq tone load "80s POP" --auto
+cascade-eq tone load AUTO
 cascade-eq preset load "Bass Boost"
 cascade-eq set --band 1k=3 --band 63=-2 --preamp -1
 cascade-eq eq auto
@@ -82,7 +82,7 @@ Every subcommand supports `--help` with examples. `--dry-run` prints the plan wi
 
 `enable` creates a virtual sink named `cascade_eq`, points it at your current hardware output (speakers, headphones, Bluetooth), and makes it the default device so every app is processed.
 
-The processed mix can be recorded to lossless (FLAC, WAV, WavPack, AIFF) or lossy (MP3, Ogg Vorbis, Opus, AAC) files. Model **370** is the SONIC-RAK dual cassette deck and plays files (including `radio-mix.flac`) through the `cascade_eq` sink so they run the same EQ as system audio. Use EJECT 1 / EJECT 2 to load wells, or RADIO MIX to seat the last mix in the selected deck. **HIGH SPEED DUB** plays the source well at 2× through the rack, records it, restores a 1× tape, and loads the other well. With **DOLBY B** off, cassette playback uses tape color (high-end roll-off and wow). The graphic EQ shows a live 16-band RTA; **AUTO** stays on and listens every 4 beats, then flattens loud bands. Press AUTO again to stop. Cassette tracks use their analyzed BPM; otherwise the live tempo guess is used.
+The processed mix can be recorded to lossless (FLAC, WAV, WavPack, AIFF) or lossy (MP3, Ogg Vorbis, Opus, AAC) files. Model **370** is the SONIC-RAK dual cassette deck and plays files (including `radio-mix.flac`) through the `cascade_eq` sink so they run the same EQ as system audio. Use EJECT 1 / EJECT 2 to load wells, or RADIO MIX to seat the last mix in the selected deck. **HIGH SPEED DUB** plays the source well at 2× through the rack, records it, restores a 1× tape, and loads the other well. With **DOLBY B** off, cassette playback uses tape color (high-end roll-off and wow). The graphic EQ shows a live 16-band RTA; **AUTO** stays on and listens every beat with TONE AUTO, then lifts buried bands to match what the track wants. Press AUTO again to stop. Cassette tracks use their analyzed BPM; otherwise the live tempo guess is used.
 
 **Profiles** set the whole rack for one intent (EQ, dynamics, expander, preamp, FX, and enhance together). On the 310 monitor unit pick **PROFILE**, or:
 
@@ -103,10 +103,11 @@ cascade-eq blend --off
 
 **Wave / Ride** on the 310 shows a live output waveform and amplitude histogram of what is playing. With **RIDE** on, the app watches that form and rides makeup so RMS sits near **-18 dB**, boosting quiet material and cutting back before the ceiling. Silence is gated; peaks cannot ride into the red. **GAIN** on the 310 is master volume (−12 to +12 dB). **LOW / MID / HIGH** are a 3-band tone stack on the same unit (bass shelf, 1 kHz mid, treble shelf). Tone and master stay put when you change profiles. Next to GAIN, **SPEAKERS / USB AUDIO / HEADPHONES** pick where the mix goes; the lit yellow key is the live output. To the right, **DIGITAL** is a post-stage effect: FLOOR, HEADROOM, CLARITY, STEREO, LAYERS, PUNCH. Press again to bypass. It sits after tone and does not change the 350 FX rack.
 
-**LOW / MID / HIGH / GAIN** on the 310 have their own **TONE** profiles (80s POP, Disco, Rock, Ballad, Club, Night, Voice). **80s POP** is +8 low, +6 mid, +2 high, +6 gain. **AUTO** to the right of the knobs rides those four toward the profile and pulls them back when the mix nears the ceiling. RIDE stays on so RMS sits in a safe window. Twist a knob to stop AUTO.
+**LOW / MID / HIGH / GAIN** on the 310 have their own **TONE** profiles (80s POP, Disco, Rock, Ballad, Club, Night, Voice, AUTO). **80s POP** is +8 low, +6 mid, +2 high, +6 gain. **AUTO** is the ride preset: it turns on TONE AUTO and EQ AUTO together. Every beat they read the spectrum and BPM, guess what the music wants (thin, club, disco, voice, bright, ballad, rock, or a full mix), and push the shelves plus the 16-band graphic that way — harder lifts, denser compression, pull-back only when the ceiling is close. The 310 status shows the detected intent. Twist a knob or press AUTO again to stop both.
 
 ```bash
 cascade-eq tone list
+cascade-eq tone load AUTO
 cascade-eq tone load "80s POP" --auto
 ```
 

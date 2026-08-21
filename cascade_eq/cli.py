@@ -378,7 +378,7 @@ def cmd_tone_list(args: argparse.Namespace) -> int:
 
 
 def cmd_tone_load(args: argparse.Namespace) -> int:
-    from .dsp import apply_tone_profile, normalize_tone_auto
+    from .dsp import apply_tone_profile, empty_bands, normalize_tone_auto
 
     state = load_state()
     try:
@@ -391,6 +391,15 @@ def cmd_tone_load(args: argparse.Namespace) -> int:
     if args.auto_off:
         auto["enabled"] = False
     state["tone_auto"] = auto
+    eq = dict(state.get("auto_eq") or {"enabled": False, "lift": empty_bands()})
+    if auto["enabled"]:
+        eq["enabled"] = True
+        if not eq.get("lift"):
+            eq["lift"] = empty_bands()
+        state["auto_eq"] = eq
+    elif args.auto_off:
+        eq["enabled"] = False
+        state["auto_eq"] = eq
     if args.dry_run:
         print(f"would load tone {state['tone_preset']}")
         return 0
@@ -931,6 +940,7 @@ def build_parser() -> argparse.ArgumentParser:
               cascade-eq profile list
               cascade-eq profile load "Remaster"
               cascade-eq profile load headroom
+              cascade-eq tone load AUTO --auto
               cascade-eq tone load "80s POP" --auto
               cascade-eq eq auto
               cascade-eq compressor --on --threshold -18 --ratio 4 --mode rms
@@ -1019,7 +1029,7 @@ def build_parser() -> argparse.ArgumentParser:
     tn = sub.add_parser(
         "tone",
         help="LOW / MID / HIGH / GAIN profiles, with optional AUTO ride",
-        epilog='Examples:\n  cascade-eq tone list\n  cascade-eq tone load "80s POP"\n  cascade-eq tone load "80s POP" --auto',
+        epilog='Examples:\n  cascade-eq tone list\n  cascade-eq tone load AUTO\n  cascade-eq tone load "80s POP" --auto',
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     tn_sub = tn.add_subparsers(dest="tone_cmd", required=True)
@@ -1028,7 +1038,7 @@ def build_parser() -> argparse.ArgumentParser:
     tnl.set_defaults(func=cmd_tone_list)
     tnd = tn_sub.add_parser("load", help="Set LOW / MID / HIGH / GAIN")
     tnd.add_argument("name")
-    tnd.add_argument("--auto", action="store_true", help="Ride those knobs and keep peaks under the ceiling")
+    tnd.add_argument("--auto", action="store_true", help="Ride LOW/MID/HIGH/GAIN every beat and turn on EQ AUTO")
     tnd.add_argument("--auto-off", action="store_true")
     tnd.add_argument("--dry-run", action="store_true")
     tnd.set_defaults(func=cmd_tone_load)
@@ -1052,12 +1062,12 @@ def build_parser() -> argparse.ArgumentParser:
     eqa = sub.add_parser(
         "eq",
         help="Lift buried detail from the live 16-band RTA without changing the graphic EQ curve",
-        epilog="Examples:\n  cascade-eq eq auto\n  cascade-eq eq auto --beats 4\n  cascade-eq eq auto --seconds 3",
+        epilog="Examples:\n  cascade-eq eq auto\n  cascade-eq eq auto --beats 1\n  cascade-eq eq auto --seconds 3",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     eq_sub = eqa.add_subparsers(dest="eq_cmd", required=True)
-    eq_auto = eq_sub.add_parser("auto", help="Listen for 4 beats and lift buried detail")
-    eq_auto.add_argument("--beats", type=int, default=4, metavar="N", help="Listen window in beats (default: 4)")
+    eq_auto = eq_sub.add_parser("auto", help="Listen for 1 beat and lift buried detail")
+    eq_auto.add_argument("--beats", type=int, default=1, metavar="N", help="Listen window in beats (default: 1)")
     eq_auto.add_argument("--seconds", type=float, default=None, metavar="SEC", help="Override listen time in seconds")
     eq_auto.add_argument("--dry-run", action="store_true")
     eq_auto.set_defaults(func=cmd_eq_auto)

@@ -1,6 +1,6 @@
 """SONIC-RAK (Cascade EQ) — system-wide PipeWire equalizer for Ubuntu."""
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 APP_ID = "dev.cascade.Equalizer"
 APP_NAME = "Cascade EQ"
 SINK_NAME = "cascade_eq"

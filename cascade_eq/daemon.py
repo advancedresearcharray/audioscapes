@@ -38,6 +38,7 @@ from .dsp import (
     normalize_ride,
     normalize_tone,
     normalize_tone_auto,
+    pair_auto_from_rta,
     scale_tone,
     threshold_db_to_gain,
 )
@@ -233,19 +234,25 @@ def apply_dsp(engine, state: dict) -> None:
     lifts = auto.get("lift") if auto_on else None
     for i, db in enumerate(mix_eq_lifts(bands, lifts)[:16]):
         _set(eq, f"g-{i}", db_to_band_gain(float(db)))
+    engine.eq_bands = [float(v) for v in (list(bands) + [0.0] * 16)[:16]]
+    engine.auto_eq_on = auto_on
+    if auto_on:
+        engine.auto_eq_lifts = [max(0.0, float(v)) for v in (list(auto.get("lift") or []) + [0.0] * 16)[:16]]
+    else:
+        engine.auto_eq_lifts = [0.0] * 16
 
     c = state.get("compressor") or {}
     _set(comp, "enabled", True if auto_on else bool(c.get("enabled")))
     mode = str(c.get("mode", "rms")).lower()
     _set(comp, "scm", "RMS" if auto_on or mode == "rms" else "Peak")
     if auto_on:
-        _set(comp, "al", threshold_db_to_gain(-32.0))
-        _set(comp, "cr", 6.0)
-        _set(comp, "at", 8.0)
-        _set(comp, "rt", 80.0)
-        _set(comp, "kn", knee_db_to_gain(10.0))
-        _set(comp, "mk", db_to_preamp_gain(8.0))
-        _set(comp, "sla", 4.0)
+        _set(comp, "al", threshold_db_to_gain(-36.0))
+        _set(comp, "cr", 8.0)
+        _set(comp, "at", 5.0)
+        _set(comp, "rt", 70.0)
+        _set(comp, "kn", knee_db_to_gain(12.0))
+        _set(comp, "mk", db_to_preamp_gain(10.0))
+        _set(comp, "sla", 5.0)
         if engine.dyn_dry_amp is not None:
             _set(engine.dyn_dry_amp, "amplification", 0.0)
             _set(engine.dyn_wet_amp, "amplification", 1.0)
@@ -545,6 +552,11 @@ class Engine:
         self.tone_target = default_tone()
         self.tone_live = dict(default_tone())
         self.master_target = 0.0
+        self._tone_beat_due = 0.0
+        self.auto_eq_on = False
+        self.auto_eq_lifts = [0.0] * 16
+        self.eq_bands = [0.0] * 16
+        self.auto_intent = "full"
         self._rta_until = 0.0
         self.post_gain_db = 0.0
         self.master_db = 0.0
@@ -1092,7 +1104,11 @@ class Engine:
             self.meters.decay()
             return
         pulled = [sample]
-        want_rta = time.monotonic() < float(getattr(self, "_rta_until", 0.0))
+        want_rta = (
+            time.monotonic() < float(getattr(self, "_rta_until", 0.0))
+            or bool(getattr(self, "auto_eq_on", False))
+            or bool(getattr(self, "tone_auto_on", False))
+        )
         extra = 5 if want_rta else 8
         for _ in range(extra):
             nxt = sink.emit("try-pull-sample", 0)
@@ -1137,6 +1153,9 @@ class Engine:
         live = dict(self.tone_live or {})
         live["gain_db"] = round(float(self.master_db), 2)
         snap["tone_live"] = live
+        snap["eq_auto"] = bool(getattr(self, "auto_eq_on", False))
+        snap["eq_lifts"] = [round(float(v), 2) for v in (getattr(self, "auto_eq_lifts", None) or [])[:16]]
+        snap["auto_intent"] = str(getattr(self, "auto_intent", "") or "")
         return snap
 
     def harvest_meters(self) -> dict:
@@ -1287,40 +1306,64 @@ class Engine:
         self._commit_output_amp()
 
     def apply_tone_auto(self, dt_ms: float = 20.0) -> None:
-        """Scale LOW/MID/HIGH/GAIN toward the profile, pulling back before the ceiling."""
+        """Ride TONE and EQ on the same beat, sharing headroom for a full mix."""
         target = self.tone_target or default_tone()
         master = float(self.master_target)
-        if not self.tone_auto_on or not self.processing:
+        need_tone = bool(self.tone_auto_on and self.processing)
+        need_eq = bool(getattr(self, "auto_eq_on", False) and self.processing)
+        if not need_tone:
             self.tone_scale = 1.0
             live, live_gain = scale_tone(target, master, 1.0)
             _apply_tone(self, live)
             self.master_db = live_gain
             self.tone_live = {**live, "gain_db": live_gain}
+        if not need_tone and not need_eq:
+            self._tone_beat_due = 0.0
             return
-        peak = max(float(self.meters.peak_l), float(self.meters.peak_r))
-        rms = 0.5 * (float(self.meters.rms_l) + float(self.meters.rms_r))
-        peak_db = 20.0 * math.log10(max(peak, 1e-9))
-        rms_db = 20.0 * math.log10(max(rms, 1e-9))
-        ceiling = float((self.ride or {}).get("ceiling_db", -1.0))
-        headroom = ceiling - peak_db
-        current = float(self.tone_scale)
-        if rms_db < -48.0:
-            desired = current
-        elif headroom < 0.0:
-            desired = current * 0.80
-        elif headroom < 1.5:
-            desired = current * 0.93
-        elif headroom > 7.0 and rms_db < -12.0:
-            desired = min(1.0, current + 0.025)
-        else:
-            desired = current
-        tau = 90.0 if desired < current else 380.0
-        coeff = 1.0 - math.exp(-dt_ms / max(40.0, tau))
-        self.tone_scale = max(0.28, min(1.0, current + (desired - current) * coeff))
-        live, live_gain = scale_tone(target, master, self.tone_scale)
-        _apply_tone(self, live)
-        self.master_db = live_gain
-        self.tone_live = {**live, "gain_db": live_gain}
+        now = time.monotonic()
+        due = float(getattr(self, "_tone_beat_due", 0.0) or 0.0)
+        if due <= 0.0 or now >= due:
+            bpm = max(70.0, min(180.0, float(getattr(self.meters, "bpm", 0.0) or 120.0)))
+            self._tone_beat_due = now + (60.0 / bpm)
+            rta = list(getattr(self.meters, "rta", []) or [])
+            peak = max(float(self.meters.peak_l), float(self.meters.peak_r))
+            rms = 0.5 * (float(self.meters.rms_l) + float(self.meters.rms_r))
+            peak_db = 20.0 * math.log10(max(peak, 1e-9))
+            rms_db = 20.0 * math.log10(max(rms, 1e-9))
+            ceiling = float((self.ride or {}).get("ceiling_db", -1.0))
+            lifts, live, live_gain, scale, intent = pair_auto_from_rta(
+                rta,
+                tone_target=target,
+                master_db=master,
+                prev_tone=self.tone_live,
+                prev_lifts=getattr(self, "auto_eq_lifts", None),
+                prev_scale=float(self.tone_scale),
+                headroom_db=ceiling - peak_db,
+                rms_db=rms_db,
+                peak_db=peak_db,
+                bpm=bpm,
+                paired=bool(need_tone and need_eq),
+            )
+            self.auto_intent = intent
+            if need_tone:
+                self.tone_scale = scale
+                self.master_db = live_gain
+                self.tone_live = {**live, "gain_db": live_gain}
+                _apply_tone(self, live)
+            if need_eq:
+                self.auto_eq_lifts = lifts
+                self._commit_eq_mix()
+        elif need_tone:
+            live = dict(self.tone_live or {})
+            _apply_tone(self, live)
+            self.master_db = float(live.get("gain_db", self.master_db))
+
+    def _commit_eq_mix(self) -> None:
+        if self.eq is None:
+            return
+        lifts = self.auto_eq_lifts if getattr(self, "auto_eq_on", False) else None
+        for i, db in enumerate(mix_eq_lifts(getattr(self, "eq_bands", None), lifts)[:16]):
+            _set(self.eq, f"g-{i}", db_to_band_gain(float(db)))
 
     def apply_auto_fx(self) -> bool:
         """Ride noise, clarity, or level from the input envelope. Dry is never replaced."""
