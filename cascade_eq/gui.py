@@ -162,6 +162,356 @@ class CairoDraw(Gtk.DrawingArea if _GI_CAIRO else Gtk.Picture):
         )
 
 
+def _hud_rgb() -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    p = palette()
+    lit = tuple(float(v) for v in p["fl"][:3])
+    dim = tuple(float(v) for v in p["fl_dim"][:3])
+    return lit, dim
+
+
+def _hud_window(cr, x: float, y: float, w: float, h: float) -> None:
+    """Recessed appliance display: metal bezel, black well, tinted VFD glass."""
+    p = palette()
+    _rrect(cr, x, y, w, h, 3.0)
+    bezel = cairo.LinearGradient(x, y, x, y + h)
+    bezel.add_color_stop_rgb(0.0, *p["chassis0"])
+    bezel.add_color_stop_rgb(0.22, *p["chassis1"])
+    bezel.add_color_stop_rgb(1.0, *p["chassis3"])
+    cr.set_source(bezel)
+    cr.fill_preserve()
+    _src(cr, "inner")
+    cr.set_line_width(1.0)
+    cr.stroke()
+    ix, iy, iw, ih = x + 3.5, y + 3.5, w - 7.0, h - 7.0
+    _rrect(cr, ix, iy, iw, ih, 1.4)
+    cr.set_source_rgb(*p["glass1"][:3] if len(p["glass1"]) >= 3 else (0.01, 0.04, 0.05))
+    cr.fill()
+    _rrect(cr, ix, iy, iw, ih, 1.4)
+    cr.set_source_rgb(0.015, 0.03, 0.03)
+    cr.fill()
+    lit, _dim = _hud_rgb()
+    glass = cairo.LinearGradient(ix, iy, ix, iy + ih)
+    glass.add_color_stop_rgba(0.0, lit[0], lit[1], lit[2], 0.10)
+    glass.add_color_stop_rgba(0.40, 0.0, 0.0, 0.0, 0.0)
+    glass.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, 0.28)
+    _rrect(cr, ix, iy, iw, ih, 1.4)
+    cr.set_source(glass)
+    cr.fill()
+    cr.set_source_rgba(1, 1, 1, 0.08)
+    cr.rectangle(ix + 2, iy + 1.2, max(1, iw - 4), 2.2)
+    cr.fill()
+    cr.set_source_rgba(*p["glass_edge"][:3], 0.55)
+    cr.set_line_width(1.0)
+    _rrect(cr, ix, iy, iw, ih, 1.4)
+    cr.stroke()
+
+
+def _hud_lamp(cr, x: float, y: float, label: str, on: bool) -> None:
+    lit, dim = _hud_rgb()
+    cr.select_font_face("Ubuntu Mono", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+    cr.set_font_size(8)
+    if on:
+        cr.set_source_rgba(lit[0], lit[1], lit[2], 0.18)
+        cr.rectangle(x - 2, y - 8.5, 6.1 * max(3, len(label)) + 3, 11)
+        cr.fill()
+        cr.set_source_rgb(*lit)
+    else:
+        cr.set_source_rgba(*dim, 0.55)
+    cr.move_to(x, y)
+    cr.show_text(label)
+
+
+_SEG_MAP = {
+    "0": "abcdef",
+    "1": "bc",
+    "2": "abged",
+    "3": "abgcd",
+    "4": "fgbc",
+    "5": "afgcd",
+    "6": "afgecd",
+    "7": "abc",
+    "8": "abcdefg",
+    "9": "abfgcd",
+    "-": "g",
+}
+
+# 5x7 VFD glyphs, MSB = left column.
+_VFD = {
+    " ": (0, 0, 0, 0, 0, 0, 0),
+    "A": (0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001),
+    "B": (0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110),
+    "C": (0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110),
+    "D": (0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110),
+    "E": (0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111),
+    "F": (0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000),
+    "G": (0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110),
+    "H": (0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001),
+    "I": (0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110),
+    "J": (0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100),
+    "K": (0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001),
+    "L": (0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111),
+    "M": (0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001),
+    "N": (0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001),
+    "O": (0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110),
+    "P": (0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000),
+    "Q": (0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101),
+    "R": (0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001),
+    "S": (0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110),
+    "T": (0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100),
+    "U": (0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110),
+    "V": (0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100),
+    "W": (0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010),
+    "X": (0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001),
+    "Y": (0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100),
+    "Z": (0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111),
+    "0": (0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110),
+    "1": (0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110),
+    "2": (0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111),
+    "3": (0b11111, 0b00010, 0b00100, 0b00010, 0b00001, 0b10001, 0b01110),
+    "4": (0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010),
+    "5": (0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110),
+    "6": (0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110),
+    "7": (0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000),
+    "8": (0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110),
+    "9": (0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100),
+    "-": (0, 0, 0, 0b11111, 0, 0, 0),
+    "+": (0, 0b00100, 0b00100, 0b11111, 0b00100, 0b00100, 0),
+    ".": (0, 0, 0, 0, 0, 0, 0b00100),
+    ":": (0, 0b00100, 0, 0, 0b00100, 0, 0),
+    "/": (0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0, 0),
+    ">": (0b10000, 0b01000, 0b00100, 0b00010, 0b00100, 0b01000, 0b10000),
+    "*": (0b00100, 0b10101, 0b01110, 0b00100, 0b01110, 0b10101, 0b00100),
+    "=": (0, 0, 0b11111, 0, 0b11111, 0, 0),
+    "_": (0, 0, 0, 0, 0, 0, 0b11111),
+}
+
+
+def _seg_bar_h(cr, x: float, y: float, w: float, t: float, on: bool) -> None:
+    lit, dim = _hud_rgb()
+    cr.move_to(x + t * 0.45, y)
+    cr.line_to(x + w - t * 0.45, y)
+    cr.line_to(x + w, y + t * 0.5)
+    cr.line_to(x + w - t * 0.45, y + t)
+    cr.line_to(x + t * 0.45, y + t)
+    cr.line_to(x, y + t * 0.5)
+    cr.close_path()
+    if on:
+        cr.set_source_rgb(*lit)
+        cr.fill_preserve()
+        cr.set_source_rgba(lit[0], lit[1], lit[2], 0.38)
+        cr.set_line_width(1.5)
+        cr.stroke()
+    else:
+        cr.set_source_rgba(*dim, 0.42)
+        cr.fill()
+
+
+def _seg_bar_v(cr, x: float, y: float, h: float, t: float, on: bool) -> None:
+    lit, dim = _hud_rgb()
+    cr.move_to(x, y + t * 0.45)
+    cr.line_to(x + t * 0.5, y)
+    cr.line_to(x + t, y + t * 0.45)
+    cr.line_to(x + t, y + h - t * 0.45)
+    cr.line_to(x + t * 0.5, y + h)
+    cr.line_to(x, y + h - t * 0.45)
+    cr.close_path()
+    if on:
+        cr.set_source_rgb(*lit)
+        cr.fill_preserve()
+        cr.set_source_rgba(lit[0], lit[1], lit[2], 0.38)
+        cr.set_line_width(1.5)
+        cr.stroke()
+    else:
+        cr.set_source_rgba(*dim, 0.42)
+        cr.fill()
+
+
+def _seg_digit(cr, x: float, y: float, w: float, h: float, ch: str) -> None:
+    t = max(2.2, min(3.6, w * 0.18))
+    gap = 1.2
+    on_segs = _SEG_MAP.get(ch, "")
+    mid = y + (h - t) * 0.5
+    for n in "abcdefg":
+        on = n in on_segs
+        if n == "a":
+            _seg_bar_h(cr, x + gap, y, w - 2 * gap, t, on)
+        elif n == "g":
+            _seg_bar_h(cr, x + gap, mid, w - 2 * gap, t, on)
+        elif n == "d":
+            _seg_bar_h(cr, x + gap, y + h - t, w - 2 * gap, t, on)
+        elif n == "f":
+            _seg_bar_v(cr, x, y + t * 0.6, mid - y - t * 0.4, t, on)
+        elif n == "b":
+            _seg_bar_v(cr, x + w - t, y + t * 0.6, mid - y - t * 0.4, t, on)
+        elif n == "e":
+            _seg_bar_v(cr, x, mid + t * 0.7, y + h - t * 0.6 - (mid + t * 0.7), t, on)
+        elif n == "c":
+            _seg_bar_v(cr, x + w - t, mid + t * 0.7, y + h - t * 0.6 - (mid + t * 0.7), t, on)
+
+
+class TickerView(CairoDraw):
+    """Cassette-style 5x7 VFD marquee in a recessed HUD well."""
+
+    def __init__(self) -> None:
+        self._text = "STANDBY"
+        self._offset = 0.0
+        self._live = False
+        self._auto = False
+        super().__init__(420, 42)
+        self.set_hexpand(True)
+        self.set_valign(Gtk.Align.CENTER)
+        GLib.timeout_add(160, self._scroll)
+
+    def set_text(self, text: str) -> None:
+        nxt = " ".join(str(text or "").upper().replace("·", "-").replace("→", ">").replace("—", "-").split())
+        if not nxt:
+            nxt = "STANDBY"
+        if nxt == self._text:
+            return
+        self._text = nxt
+        self._render()
+
+    def set_lamps(self, *, live: bool | None = None, auto: bool | None = None) -> None:
+        dirty = False
+        if live is not None and bool(live) != self._live:
+            self._live = bool(live)
+            dirty = True
+        if auto is not None and bool(auto) != self._auto:
+            self._auto = bool(auto)
+            dirty = True
+        if dirty:
+            self._render()
+
+    def _scroll(self) -> bool:
+        self._offset += 6.0
+        self._render()
+        return True
+
+    def _paint_size(self) -> tuple[int, int]:
+        return (
+            max(self._w, self.get_width() or self._w),
+            max(self._h, self.get_height() or self._h),
+        )
+
+    def _paint(self, cr, width: int, height: int) -> None:
+        _hud_window(cr, 0, 0, width, height)
+        lamp_w = 46.0
+        _hud_lamp(cr, 10, 16, "LIVE", self._live)
+        _hud_lamp(cr, 10, 30, "AUTO", self._auto)
+        cr.set_source_rgba(1, 1, 1, 0.10)
+        cr.move_to(lamp_w, 7)
+        cr.line_to(lamp_w, height - 7)
+        cr.set_line_width(1)
+        cr.stroke()
+        pad_x, pad_y = lamp_w + 8, 8
+        area_w = max(8, width - pad_x - 8)
+        area_h = max(8, height - pad_y * 2)
+        cell = min(area_h / 7.0, 3.6)
+        visible = max(8, int(area_w / cell))
+
+        def columns(msg: str) -> list[list[bool]]:
+            cols: list[list[bool]] = []
+            for ch in msg:
+                rows = _VFD.get(ch.upper(), _VFD[" "])
+                for c in range(6):
+                    col = []
+                    for r in range(7):
+                        col.append(bool(c < 5 and rows[r] & (0b10000 >> c)))
+                    cols.append(col)
+            return cols
+
+        plain = columns(self._text)
+        if len(plain) <= visible:
+            cols = plain
+            start = 0
+        else:
+            cols = columns(self._text + "   *   ")
+            start = int(self._offset) % max(1, len(cols))
+        n_cols = visible + 2
+        total = max(1, len(cols))
+        cr.save()
+        cr.rectangle(pad_x, pad_y, area_w, area_h)
+        cr.clip()
+        lit, dim = _hud_rgb()
+        hold = len(plain) <= visible
+        for i in range(n_cols):
+            idx = start + i
+            if hold:
+                col = cols[idx] if idx < len(cols) else [False] * 7
+            else:
+                col = cols[idx % total]
+            x = pad_x + i * cell
+            for r, on in enumerate(col):
+                s = cell - max(0.3, cell * 0.14)
+                _rrect(cr, x, pad_y + r * cell, s, s, min(1.0, s * 0.35))
+                if on:
+                    cr.set_source_rgb(*lit)
+                    cr.fill()
+                else:
+                    cr.set_source_rgba(*dim, 0.38)
+                    cr.fill()
+        cr.restore()
+        sheen = cairo.LinearGradient(0, 0, 0, height)
+        sheen.add_color_stop_rgba(0, 1, 1, 1, 0.07)
+        sheen.add_color_stop_rgba(0.32, 1, 1, 1, 0.0)
+        _rrect(cr, 3.5, 3.5, width - 7, height - 7, 1.4)
+        cr.set_source(sheen)
+        cr.fill()
+
+
+class BpmDigitView(CairoDraw):
+    """Top-right TEMPO HUD: 7-segment VFD with beat lamp."""
+
+    def __init__(self) -> None:
+        self._bpm = 120.0
+        super().__init__(158, 46)
+        self.set_valign(Gtk.Align.CENTER)
+        self.set_halign(Gtk.Align.END)
+        GLib.timeout_add(80, self._blink)
+        self._render()
+
+    def set_bpm(self, bpm: float) -> None:
+        try:
+            nxt = max(0.0, min(999.0, float(bpm)))
+        except (TypeError, ValueError):
+            nxt = 0.0
+        if abs(nxt - self._bpm) < 0.35:
+            return
+        self._bpm = nxt
+        self._render()
+
+    def _blink(self) -> bool:
+        self._render()
+        return True
+
+    def _paint(self, cr, width: int, height: int) -> None:
+        _hud_window(cr, 0, 0, width, height)
+        beat = False
+        if self._bpm >= 40:
+            phase = (time.monotonic() * self._bpm / 60.0) % 1.0
+            beat = phase < 0.16
+        _hud_lamp(cr, 8, 14, "TEMPO", True)
+        _hud_lamp(cr, 8, height - 10, "BEAT", beat)
+        digits = f"{int(round(self._bpm)):03d}" if self._bpm >= 40 else "---"
+        dw, dh = 26.0, height - 16
+        x0 = width - 10 - 3 * (dw + 5)
+        y0 = 8.0
+        for i, ch in enumerate(digits):
+            _seg_digit(cr, x0 + i * (dw + 5), y0, dw, dh, ch)
+        lit, dim = _hud_rgb()
+        cr.select_font_face("Ubuntu Mono", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(7)
+        cr.set_source_rgba(*dim, 0.7)
+        cr.move_to(width - 28, 13)
+        cr.show_text("BPM")
+        sheen = cairo.LinearGradient(0, 0, 0, height)
+        sheen.add_color_stop_rgba(0, 1, 1, 1, 0.07)
+        sheen.add_color_stop_rgba(0.32, 1, 1, 1, 0.0)
+        _rrect(cr, 3.5, 3.5, width - 7, height - 7, 1.4)
+        cr.set_source(sheen)
+        cr.fill()
+
+
 class BarMeterView(CairoDraw):
     """Live output waveform plus amplitude histogram."""
 
@@ -2177,17 +2527,15 @@ class CascadeWindow(Adw.ApplicationWindow):
         self.enable = Gtk.Switch()
         self.enable.set_valign(Gtk.Align.CENTER)
         self.enable.connect("notify::active", self._on_enable)
-        self.status = Gtk.Label(xalign=0)
-        self.status.add_css_class("status-off")
-        led = Gtk.Box()
-        led.add_css_class("led-well")
-        led.append(self.status)
-        power = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.status = TickerView()
+        power = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        power.set_valign(Gtk.Align.CENTER)
         pwr = Gtk.Label(label="POWER")
         pwr.add_css_class("field-label")
+        pwr.set_valign(Gtk.Align.CENTER)
         power.append(pwr)
         power.append(self.enable)
-        power.append(led)
+        power.append(self.status)
 
         blend_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         bl = Gtk.Label(label="BLEND")
@@ -2499,6 +2847,7 @@ class CascadeWindow(Adw.ApplicationWindow):
         face.set_hexpand(True)
         strip = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         strip.set_hexpand(True)
+        strip.set_valign(Gtk.Align.CENTER)
         brand = Gtk.Label(label=str(active_skin()["brand_name"]), xalign=0)
         brand.add_css_class("rack-brand")
         self._brand_labels.append(brand)
@@ -2518,9 +2867,15 @@ class CascadeWindow(Adw.ApplicationWindow):
         ttl.add_css_class("rack-title")
         ttl.set_hexpand(True)
         ttl.set_ellipsize(Pango.EllipsizeMode.END)
-        strip.append(brand)
-        strip.append(mdl)
-        strip.append(ttl)
+        hit = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        hit.set_hexpand(True)
+        hit.append(brand)
+        hit.append(mdl)
+        hit.append(ttl)
+        strip.append(hit)
+        if model == "310":
+            self.bpm_view = BpmDigitView()
+            strip.append(self.bpm_view)
         expander = Gtk.Expander()
         expander.add_css_class("rack-expander")
         expander.set_hexpand(True)
@@ -2541,7 +2896,7 @@ class CascadeWindow(Adw.ApplicationWindow):
             "released",
             lambda *_a, exp=expander: exp.set_expanded(not exp.get_expanded()),
         )
-        strip.add_controller(click)
+        hit.add_controller(click)
         self._expanders[model] = expander
         face.append(expander)
         unit.append(face)
@@ -4178,11 +4533,10 @@ class CascadeWindow(Adw.ApplicationWindow):
         if hasattr(self, "eq_wave"):
             self.eq_wave.set_lifts(self.state["auto_eq"]["lift"])
         self._dirty()
-        bpm = self._eq_auto_bpm()
         if getattr(self, "_tone_auto_on", False):
-            self.status.set_text(f"TONE+EQ AUTO  ·  1 beat @ {bpm:.0f} BPM")
+            self.status.set_text("TONE+EQ AUTO  ·  1 beat")
         else:
-            self.status.set_text(f"AUTO  ·  1 beat ride @ {bpm:.0f} BPM")
+            self.status.set_text("AUTO  ·  1 beat ride")
         return False
 
     def _stop_auto_eq(self) -> None:
@@ -4204,9 +4558,9 @@ class CascadeWindow(Adw.ApplicationWindow):
         self._auto_until = time.time() + four_beat_seconds(bpm, AUTO_EQ_BEATS)
         bar = f"  ·  bar {self._auto_bars}" if self._auto_bars else ""
         if getattr(self, "_tone_auto_on", False):
-            self.status.set_text(f"TONE+EQ AUTO  ·  1 beat @ {bpm:.0f} BPM{bar}")
+            self.status.set_text(f"TONE+EQ AUTO  ·  1 beat{bar}")
         else:
-            self.status.set_text(f"AUTO  ·  1 beat ride @ {bpm:.0f} BPM{bar}")
+            self.status.set_text(f"AUTO  ·  1 beat ride{bar}")
 
     def _finish_auto_eq(self) -> None:
         frames = self._auto_listen
@@ -4215,7 +4569,7 @@ class CascadeWindow(Adw.ApplicationWindow):
         looping = self._auto_on
         if not frames:
             if looping:
-                self.status.set_text(f"AUTO  ·  waiting for signal @ {self._eq_auto_bpm():.0f} BPM")
+                self.status.set_text("AUTO  ·  waiting for signal")
                 self._begin_auto_bar()
             else:
                 self.btn_auto_eq.set_label("AUTO")
@@ -4226,7 +4580,7 @@ class CascadeWindow(Adw.ApplicationWindow):
         avg = [sum(row[i] for row in frames) / len(frames) for i in range(n)]
         if max(avg) < 0.03:
             if looping:
-                self.status.set_text(f"AUTO  ·  too quiet @ {self._eq_auto_bpm():.0f} BPM")
+                self.status.set_text("AUTO  ·  too quiet")
                 self._begin_auto_bar()
             else:
                 self.btn_auto_eq.set_label("AUTO")
@@ -4243,7 +4597,7 @@ class CascadeWindow(Adw.ApplicationWindow):
         else:
             self.btn_auto_eq.set_label("AUTO")
             self.btn_auto_eq.remove_css_class("hot")
-            self.status.set_text(f"AUTO  ·  revealing @ {self._eq_auto_bpm():.0f} BPM")
+            self.status.set_text("AUTO  ·  revealing")
 
     def _on_preset(self, *_args) -> None:
         if self._suppress:
@@ -4465,7 +4819,8 @@ class CascadeWindow(Adw.ApplicationWindow):
                 request({"cmd": "apply", "state": self.state})
             elif ping():
                 request({"cmd": "disable"})
-            self.status.set_text("")
+            self._refresh_status()
+            return False
         except ClientError as exc:
             self.status.set_text(str(exc))
         self._refresh_status()
@@ -4494,6 +4849,9 @@ class CascadeWindow(Adw.ApplicationWindow):
         want_rta = self._unit_open("316") or bool(self._auto_on) or bool(self._auto_until)
         data = meters(rta=want_rta)
         self._live_bpm = float(data.get("bpm") or self._live_bpm or 120.0)
+        if hasattr(self, "bpm_view"):
+            self.bpm_view.set_bpm(self._eq_auto_bpm())
+        self._sync_hud(processing=bool(self.enable.get_active()))
         if self._unit_open("310"):
             self.wave.update(
                 list(data.get("wave") or []),
@@ -4534,7 +4892,7 @@ class CascadeWindow(Adw.ApplicationWindow):
         if self._auto_on and getattr(self, "_tone_auto_on", False) and self._meter_n % 15 == 0:
             intent = str(data.get("auto_intent") or "").strip().upper()
             tag = f"  ·  {intent}" if intent else ""
-            self.status.set_text(f"TONE+EQ AUTO{tag}  ·  1 beat @ {self._eq_auto_bpm():.0f} BPM")
+            self.status.set_text(f"TONE+EQ AUTO{tag}  ·  1 beat")
         if self._unit_open("370") and hasattr(self, "cassette"):
             self.cassette.set_deck(
                 self._tapes,
@@ -4665,18 +5023,27 @@ class CascadeWindow(Adw.ApplicationWindow):
             elif not present or (role != "speakers" and not plugged):
                 btn.add_css_class("dim")
 
+    def _sync_hud(self, processing: bool | None = None) -> None:
+        if not hasattr(self, "status") or not hasattr(self.status, "set_lamps"):
+            return
+        live = bool(self.enable.get_active()) if processing is None else bool(processing)
+        auto = bool(getattr(self, "_auto_on", False) or getattr(self, "_tone_auto_on", False))
+        self.status.set_lamps(live=live, auto=auto)
+
     def _refresh_status(self) -> bool:
         try:
             if ping():
                 data = request({"cmd": "status"})
                 hw = data.get("hardware_sink") or "output"
                 if data.get("processing"):
-                    self.status.set_text(f"LIVE  ·  cascade_eq  →  {hw}")
+                    if not (getattr(self, "_auto_on", False) or getattr(self, "_tone_auto_on", False)):
+                        self.status.set_text(f"LIVE  ·  cascade_eq  →  {hw}")
                     self.status.add_css_class("status-ok")
                     self.status.remove_css_class("status-off")
                 else:
                     self.status.set_text("STANDBY  ·  enable to process system audio")
                     self.status.add_css_class("status-off")
+                self._sync_hud(processing=bool(data.get("processing")))
                 rec = data.get("record") or {}
                 self._suppress = True
                 self.enable.set_active(bool(data.get("enabled") or data.get("processing")))
@@ -4705,6 +5072,7 @@ class CascadeWindow(Adw.ApplicationWindow):
             else:
                 self.status.set_text(f"BYPASS  ·  {default_sink() or '—'}")
                 self.status.add_css_class("status-off")
+                self._sync_hud(processing=False)
                 self._suppress = True
                 self.rec_arm.set_active(False)
                 self.session_arm.set_active(False)
@@ -4715,6 +5083,7 @@ class CascadeWindow(Adw.ApplicationWindow):
                 self._sync_output_buttons()
         except ClientError as exc:
             self.status.set_text(str(exc))
+            self._sync_hud(processing=False)
             self._sync_output_buttons()
         return True
 

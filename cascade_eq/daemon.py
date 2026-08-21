@@ -246,13 +246,13 @@ def apply_dsp(engine, state: dict) -> None:
     mode = str(c.get("mode", "rms")).lower()
     _set(comp, "scm", "RMS" if auto_on or mode == "rms" else "Peak")
     if auto_on:
-        _set(comp, "al", threshold_db_to_gain(-36.0))
-        _set(comp, "cr", 8.0)
-        _set(comp, "at", 5.0)
-        _set(comp, "rt", 70.0)
-        _set(comp, "kn", knee_db_to_gain(12.0))
-        _set(comp, "mk", db_to_preamp_gain(10.0))
-        _set(comp, "sla", 5.0)
+        _set(comp, "al", threshold_db_to_gain(-22.0))
+        _set(comp, "cr", 2.8)
+        _set(comp, "at", 22.0)
+        _set(comp, "rt", 220.0)
+        _set(comp, "kn", knee_db_to_gain(8.0))
+        _set(comp, "mk", db_to_preamp_gain(3.0))
+        _set(comp, "sla", 4.0)
         if engine.dyn_dry_amp is not None:
             _set(engine.dyn_dry_amp, "amplification", 0.0)
             _set(engine.dyn_wet_amp, "amplification", 1.0)
@@ -557,6 +557,10 @@ class Engine:
         self.auto_eq_lifts = [0.0] * 16
         self.eq_bands = [0.0] * 16
         self.auto_intent = "full"
+        self._intent_votes = 0
+        self._auto_want_tone = None
+        self._auto_want_gain = 0.0
+        self._auto_want_lifts = None
         self._rta_until = 0.0
         self.post_gain_db = 0.0
         self.master_db = 0.0
@@ -1299,6 +1303,8 @@ class Engine:
         current = float(self.ride_db)
         desired = max(-cut, min(boost, current + error))
         tau = float(cfg.get("attack_ms", 900.0) if desired > current else cfg.get("release_ms", 220.0))
+        if getattr(self, "tone_auto_on", False) or getattr(self, "auto_eq_on", False):
+            tau = max(tau, 900.0) * 2.4
         coeff = 1.0 - math.exp(-dt_ms / max(40.0, tau))
         self.ride_db = current + (desired - current) * coeff
         if abs(self.ride_db) < 0.05:
@@ -1331,32 +1337,58 @@ class Engine:
             peak_db = 20.0 * math.log10(max(peak, 1e-9))
             rms_db = 20.0 * math.log10(max(rms, 1e-9))
             ceiling = float((self.ride or {}).get("ceiling_db", -1.0))
-            lifts, live, live_gain, scale, intent = pair_auto_from_rta(
+            lifts, live, live_gain, scale, guess = pair_auto_from_rta(
                 rta,
                 tone_target=target,
                 master_db=master,
                 prev_tone=self.tone_live,
                 prev_lifts=getattr(self, "auto_eq_lifts", None),
                 prev_scale=float(self.tone_scale),
+                prev_intent=str(getattr(self, "auto_intent", "") or ""),
                 headroom_db=ceiling - peak_db,
                 rms_db=rms_db,
                 peak_db=peak_db,
                 bpm=bpm,
                 paired=bool(need_tone and need_eq),
             )
-            self.auto_intent = intent
-            if need_tone:
-                self.tone_scale = scale
-                self.master_db = live_gain
-                self.tone_live = {**live, "gain_db": live_gain}
-                _apply_tone(self, live)
-            if need_eq:
-                self.auto_eq_lifts = lifts
-                self._commit_eq_mix()
-        elif need_tone:
-            live = dict(self.tone_live or {})
+            held = str(getattr(self, "auto_intent", "") or guess)
+            votes = int(getattr(self, "_intent_votes", 0) or 0)
+            if guess == held:
+                votes = 4
+            else:
+                votes -= 1
+                if votes <= 0:
+                    held = guess
+                    votes = 3
+            self.auto_intent = held
+            self._intent_votes = votes
+            self._auto_want_tone = live
+            self._auto_want_gain = live_gain
+            self._auto_want_lifts = lifts
+            self.tone_scale = scale
+        coeff = 1.0 - math.exp(-dt_ms / 620.0)
+        if need_tone and isinstance(getattr(self, "_auto_want_tone", None), dict):
+            want = self._auto_want_tone
+            cur = dict(self.tone_live or {})
+            live = {
+                key: float(cur.get(key, 0.0)) + (float(want.get(key, 0.0)) - float(cur.get(key, 0.0))) * coeff
+                for key in ("low_db", "mid_db", "high_db")
+            }
+            gain = float(cur.get("gain_db", self.master_db)) + (
+                float(self._auto_want_gain) - float(cur.get("gain_db", self.master_db))
+            ) * coeff
+            self.master_db = gain
+            self.tone_live = {**live, "gain_db": gain}
             _apply_tone(self, live)
-            self.master_db = float(live.get("gain_db", self.master_db))
+        if need_eq and self._auto_want_lifts:
+            cur = list(getattr(self, "auto_eq_lifts", None) or [0.0] * 16)
+            want = list(self._auto_want_lifts) + [0.0] * 16
+            self.auto_eq_lifts = [
+                float(cur[i] if i < len(cur) else 0.0)
+                + (float(want[i]) - float(cur[i] if i < len(cur) else 0.0)) * coeff
+                for i in range(16)
+            ]
+            self._commit_eq_mix()
 
     def _commit_eq_mix(self) -> None:
         if self.eq is None:

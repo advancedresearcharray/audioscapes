@@ -927,7 +927,7 @@ def cmd_session_mix(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="cascade-eq",
-        description="SONIC-RAK system-wide Ubuntu equalizer with compressor and limiter (PipeWire).",
+        description="SONIC-RAK vintage rack HUD for Ubuntu — system-wide equalizer, compressor, and limiter (PipeWire).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent(
             """\

@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=SONIC-RAK
 GenericName=Audioscapes
-Comment=SONIC-RAK system-wide equalizer, compressor, and limiter
+Comment=SONIC-RAK vintage rack HUD — system-wide equalizer, compressor, and limiter
 Exec=cascade-eq gui
 TryExec=cascade-eq
 Icon=cascade-eq
