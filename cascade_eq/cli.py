@@ -880,6 +880,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=textwrap.dedent(
             """\
             Examples:
+              cascade-eq
               cascade-eq gui
               cascade-eq enable
               cascade-eq preset list
@@ -907,9 +908,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd", required=False)
 
-    g = sub.add_parser("gui", help="Open the control panel")
+    g = sub.add_parser("gui", help="Open the control panel (default if you pass no command)")
     g.set_defaults(func=cmd_gui)
 
     d = sub.add_parser("daemon", help="Start the DSP daemon")
@@ -1225,8 +1226,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    func = getattr(args, "func", None)
+    if func is None:
+        return cmd_gui(args)
     try:
-        return int(args.func(args))
+        return int(func(args))
     except ClientError as exc:
         return _die(str(exc), "  cascade-eq status")
     except KeyError as exc:

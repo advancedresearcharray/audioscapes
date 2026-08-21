@@ -1,10 +1,12 @@
 [Desktop Entry]
-Name=Cascade EQ
+Name=SONIC-RAK
+GenericName=Audioscapes
 Comment=SONIC-RAK system-wide equalizer, compressor, and limiter
 Exec=cascade-eq gui
+TryExec=cascade-eq
 Icon=cascade-eq
 Terminal=false
 Type=Application
 Categories=AudioVideo;Audio;Mixer;
-Keywords=equalizer;eq;compressor;limiter;pipewire;audio;
+Keywords=equalizer;eq;compressor;limiter;pipewire;audio;audioscapes;sonic-rak;
 StartupNotify=true

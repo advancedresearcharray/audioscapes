@@ -16,12 +16,19 @@ Ubuntu 24.04 (or similar). Get the latest zip from **[Releases](https://github.c
 cd audioscapes-*
 sudo apt install pipewire pipewire-pulse wireplumber lsp-plugins-lv2 \
   gstreamer1.0-plugins-bad gstreamer1.0-pipewire python3-gi gir1.2-gtk-4.0 gir1.2-adw-1
-./install.sh
-cascade-eq gui
-cascade-eq enable
+./gui
 ```
 
-That link always points at the newest build. You can also clone the repo if you prefer git.
+`./gui` opens the SONIC-RAK panel. `./cascade-eq` with no arguments does the same. After `./install.sh`, search **SONIC-RAK** in the Ubuntu app menu.
+
+That release link always points at the newest build. You can also clone the repo if you prefer git.
+
+To process every app, not just the panel:
+
+```bash
+./install.sh
+cascade-eq enable
+```
 
 ## Requirements (Ubuntu 24.04)
 
@@ -44,8 +51,13 @@ If you downloaded a release zip, use the **Download** steps above. From a git ch
 
 ```bash
 cd /path/to/audioscapes
+./gui
+```
+
+To add the app menu shortcut and `cascade-eq` on PATH:
+
+```bash
 ./install.sh
-cascade-eq gui
 ```
 
 ## Use

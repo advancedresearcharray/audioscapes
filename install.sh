@@ -10,16 +10,16 @@ UNIT="${HOME}/.config/systemd/user"
 mkdir -p "$BIN" "$APP" "$ICON" "$UNIT"
 
 ln -sfn "$ROOT/cascade-eq" "$BIN/cascade-eq"
-chmod +x "$ROOT/cascade-eq"
+ln -sfn "$ROOT/gui" "$BIN/sonic-rak" 2>/dev/null || true
+chmod +x "$ROOT/cascade-eq" "$ROOT/gui"
 
 install -m 644 "$ROOT/data/cascade-eq.desktop" "$APP/cascade-eq.desktop"
 install -m 644 "$ROOT/data/icons/hicolor/scalable/apps/cascade-eq.svg" "$ICON/cascade-eq.svg"
 install -m 644 "$ROOT/data/cascade-eq.service" "$UNIT/cascade-eq.service"
 
-# Point the desktop file at this checkout if cascade-eq is not on PATH yet.
-if ! command -v cascade-eq >/dev/null 2>&1; then
-  sed -i "s|^Exec=.*|Exec=$ROOT/cascade-eq gui|" "$APP/cascade-eq.desktop"
-fi
+# Always pin the launcher to this checkout so the app menu works without PATH.
+sed -i "s|^Exec=.*|Exec=$ROOT/cascade-eq gui|" "$APP/cascade-eq.desktop"
+sed -i "s|^TryExec=.*|TryExec=$ROOT/cascade-eq|" "$APP/cascade-eq.desktop"
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$APP" >/dev/null 2>&1 || true
@@ -31,10 +31,12 @@ fi
 systemctl --user daemon-reload >/dev/null 2>&1 || true
 
 cat <<EOF
-Installed SONIC-RAK (Cascade EQ).
+Installed SONIC-RAK (Audioscapes).
 
-Run the control panel:
-  cascade-eq gui
+Open the control panel:
+  ./gui
+  cascade-eq
+  or search “SONIC-RAK” in the app menu
 
 Process all Ubuntu audio:
   cascade-eq enable

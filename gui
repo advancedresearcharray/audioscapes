@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Open the SONIC-RAK control panel from this folder. No install required.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
+chmod +x "$ROOT/cascade-eq" 2>/dev/null || true
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required."
+  exit 1
+fi
+if ! python3 - <<'PY' 2>/dev/null
+import gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gtk  # noqa: F401
+PY
+then
+  echo "Need GTK4 / libadwaita for the panel. On Ubuntu:"
+  echo "  sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \\"
+  echo "    lsp-plugins-lv2 gstreamer1.0-plugins-bad gstreamer1.0-pipewire"
+  exit 1
+fi
+
+exec python3 "$ROOT/cascade-eq" gui "$@"
