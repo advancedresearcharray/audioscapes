@@ -2,7 +2,7 @@
 
 Hear more of every song on Linux. Audioscapes is a **SONIC-RAK** vintage audio rack that sits between your apps and your speakers, headphones, or USB interface and shapes the whole mix — not just one player.
 
-It equalizes, compresses, and lifts buried low, mid, and high so thin tracks fill out. You get a 16-band graphic EQ with a live analyzer and AUTO, a 3-band tone stack, dynamics, FX, output routing, and a cassette-style deck for recording and radio mixes. Closing the panel does not stop processing.
+It equalizes, compresses, and lifts buried low, mid, and high so thin tracks fill out. You get a 16-band graphic EQ with a live analyzer and AUTO, LOW / MID / HIGH / GAIN knobs with **TONE** profiles (including **80s POP**: +8 low, +6 mid, +2 high, +6 gain) and a second **AUTO** that rides those knobs to a safe level, plus dynamics, FX, output routing, and a cassette-style deck for recording and radio mixes. Closing the panel does not stop processing.
 
 The engine is **Cascade EQ** on PipeWire, using **LSP** plugins (the same DSP family Easy Effects uses): Graphic Equalizer x16 Stereo, Compressor Stereo, and Limiter Stereo. The control panel is a native GTK4 / libadwaita SONIC-RAK app.
 
@@ -64,6 +64,7 @@ To add the app menu shortcut and `cascade-eq` on PATH:
 
 ```bash
 cascade-eq enable
+cascade-eq tone load "80s POP" --auto
 cascade-eq preset load "Bass Boost"
 cascade-eq set --band 1k=3 --band 63=-2 --preamp -1
 cascade-eq eq auto
@@ -101,6 +102,13 @@ cascade-eq blend --off
 ```
 
 **Wave / Ride** on the 310 shows a live output waveform and amplitude histogram of what is playing. With **RIDE** on, the app watches that form and rides makeup so RMS sits near **-18 dB**, boosting quiet material and cutting back before the ceiling. Silence is gated; peaks cannot ride into the red. **GAIN** on the 310 is master volume (−12 to +12 dB). **LOW / MID / HIGH** are a 3-band tone stack on the same unit (bass shelf, 1 kHz mid, treble shelf). Tone and master stay put when you change profiles. Next to GAIN, **SPEAKERS / USB AUDIO / HEADPHONES** pick where the mix goes; the lit yellow key is the live output. To the right, **DIGITAL** is a post-stage effect: FLOOR, HEADROOM, CLARITY, STEREO, LAYERS, PUNCH. Press again to bypass. It sits after tone and does not change the 350 FX rack.
+
+**LOW / MID / HIGH / GAIN** on the 310 have their own **TONE** profiles (80s POP, Disco, Rock, Ballad, Club, Night, Voice). **80s POP** is +8 low, +6 mid, +2 high, +6 gain. **AUTO** to the right of the knobs rides those four toward the profile and pulls them back when the mix nears the ceiling. RIDE stays on so RMS sits in a safe window. Twist a knob to stop AUTO.
+
+```bash
+cascade-eq tone list
+cascade-eq tone load "80s POP" --auto
+```
 
 ```bash
 cascade-eq ride --on --target -18

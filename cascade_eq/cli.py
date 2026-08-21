@@ -322,6 +322,9 @@ def cmd_set(args: argparse.Namespace) -> int:
         if args.high is not None:
             tone["high_db"] = clamp_master_db(args.high)
         state["tone"] = tone
+        from .dsp import match_tone_preset
+
+        state["tone_preset"] = match_tone_preset(tone, state.get("master_db", 0))
     if args.band:
         bands = list(state.get("bands") or [0.0] * 16)
         for item in args.band:
@@ -355,6 +358,46 @@ def cmd_set(args: argparse.Namespace) -> int:
         if any(v is not None for v in (args.low, args.mid, args.high))
         else "master updated"
     )
+    return 0
+
+
+def cmd_tone_list(args: argparse.Namespace) -> int:
+    from .dsp import TONE_PROFILES, tone_profile_names
+
+    names = tone_profile_names()
+    if args.json:
+        print(json.dumps([{"name": n, "note": TONE_PROFILES[n]["note"], **{k: TONE_PROFILES[n][k] for k in ("low_db", "mid_db", "high_db", "gain_db")}} for n in names]))
+        return 0
+    for name in names:
+        spec = TONE_PROFILES[name]
+        print(
+            f"{name:10}  L{spec['low_db']:+.0f} M{spec['mid_db']:+.0f} "
+            f"H{spec['high_db']:+.0f} G{spec['gain_db']:+.0f}  {spec['note']}"
+        )
+    return 0
+
+
+def cmd_tone_load(args: argparse.Namespace) -> int:
+    from .dsp import apply_tone_profile, normalize_tone_auto
+
+    state = load_state()
+    try:
+        state = apply_tone_profile(state, args.name)
+    except KeyError as exc:
+        return _die(str(exc), "  cascade-eq tone list")
+    auto = normalize_tone_auto(state.get("tone_auto"))
+    if args.auto:
+        auto["enabled"] = True
+    if args.auto_off:
+        auto["enabled"] = False
+    state["tone_auto"] = auto
+    if args.dry_run:
+        print(f"would load tone {state['tone_preset']}")
+        return 0
+    save_state(state)
+    if ping():
+        request({"cmd": "apply", "state": state})
+    print(f"loaded tone {state['tone_preset']}")
     return 0
 
 
@@ -888,6 +931,7 @@ def build_parser() -> argparse.ArgumentParser:
               cascade-eq profile list
               cascade-eq profile load "Remaster"
               cascade-eq profile load headroom
+              cascade-eq tone load "80s POP" --auto
               cascade-eq eq auto
               cascade-eq compressor --on --threshold -18 --ratio 4 --mode rms
               cascade-eq blend --on --threshold -8
@@ -971,6 +1015,23 @@ def build_parser() -> argparse.ArgumentParser:
     pfd.add_argument("--dry-run", action="store_true")
     pfd.add_argument("--local", action="store_true", help="Write state only; do not start the daemon")
     pfd.set_defaults(func=cmd_profile_load)
+
+    tn = sub.add_parser(
+        "tone",
+        help="LOW / MID / HIGH / GAIN profiles, with optional AUTO ride",
+        epilog='Examples:\n  cascade-eq tone list\n  cascade-eq tone load "80s POP"\n  cascade-eq tone load "80s POP" --auto',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    tn_sub = tn.add_subparsers(dest="tone_cmd", required=True)
+    tnl = tn_sub.add_parser("list", help="Print tone knob profiles")
+    tnl.add_argument("--json", action="store_true")
+    tnl.set_defaults(func=cmd_tone_list)
+    tnd = tn_sub.add_parser("load", help="Set LOW / MID / HIGH / GAIN")
+    tnd.add_argument("name")
+    tnd.add_argument("--auto", action="store_true", help="Ride those knobs and keep peaks under the ceiling")
+    tnd.add_argument("--auto-off", action="store_true")
+    tnd.add_argument("--dry-run", action="store_true")
+    tnd.set_defaults(func=cmd_tone_load)
 
     st = sub.add_parser("set", help="Set master gain, preamp, and/or EQ band gains in dB")
     st.add_argument("--master", type=float, metavar="DB", help="Master output gain, -12 to +12 (does not change the profile)")

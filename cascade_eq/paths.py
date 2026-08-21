@@ -65,6 +65,8 @@ def default_state() -> dict:
             "mid_db": 0.0,
             "high_db": 0.0,
         },
+        "tone_preset": "Flat",
+        "tone_auto": {"enabled": False},
         "digital": {
             "preset": "bypass",
             "mix": 0.0,

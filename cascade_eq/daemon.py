@@ -28,6 +28,7 @@ from .dsp import (
     db_to_preamp_gain,
     default_blend,
     default_ride,
+    default_tone,
     knee_db_to_gain,
     limiter_ceiling_to_gain,
     mix_levels,
@@ -36,6 +37,8 @@ from .dsp import (
     normalize_chain,
     normalize_ride,
     normalize_tone,
+    normalize_tone_auto,
+    scale_tone,
     threshold_db_to_gain,
 )
 from .paths import config_dir, load_state, pid_path, save_state, socket_path
@@ -93,6 +96,8 @@ DSP_STATE_KEYS = (
     "ride",
     "master_db",
     "tone",
+    "tone_auto",
+    "tone_preset",
     "digital",
     "chain_order",
     "enabled",
@@ -403,8 +408,10 @@ def apply_dsp(engine, state: dict) -> None:
         engine._apply_dly_amps(engine.dly_dry_target, engine.dly_wet_target, engine.dly_spec_target)
     engine.blend = normalize_blend(state.get("blend"))
     engine.ride = normalize_ride(state.get("ride"))
-    engine.master_db = clamp_master_db(state.get("master_db", 0.0))
-    _apply_tone(engine, state.get("tone"))
+    engine.tone_auto_on = bool(normalize_tone_auto(state.get("tone_auto")).get("enabled"))
+    engine.tone_target = normalize_tone(state.get("tone"))
+    engine.master_target = clamp_master_db(state.get("master_db", 0.0))
+    engine.apply_tone_auto()
     _apply_digital(engine, state.get("digital"))
     engine.apply_blend_comp()
     engine.apply_wave_ride()
@@ -533,6 +540,11 @@ class Engine:
         self.blend_gr_db = 0.0
         self.ride = default_ride()
         self.ride_db = 0.0
+        self.tone_auto_on = False
+        self.tone_scale = 1.0
+        self.tone_target = default_tone()
+        self.tone_live = dict(default_tone())
+        self.master_target = 0.0
         self._rta_until = 0.0
         self.post_gain_db = 0.0
         self.master_db = 0.0
@@ -1120,6 +1132,11 @@ class Engine:
         snap["ride_db"] = round(float(self.ride_db), 2)
         snap["ride_on"] = bool((self.ride or {}).get("enabled", True))
         snap["ride_target_db"] = float((self.ride or {}).get("target_db", -18.0))
+        snap["tone_auto"] = bool(self.tone_auto_on)
+        snap["tone_scale"] = round(float(self.tone_scale), 3)
+        live = dict(self.tone_live or {})
+        live["gain_db"] = round(float(self.master_db), 2)
+        snap["tone_live"] = live
         return snap
 
     def harvest_meters(self) -> dict:
@@ -1268,6 +1285,42 @@ class Engine:
         if abs(self.ride_db) < 0.05:
             self.ride_db = 0.0
         self._commit_output_amp()
+
+    def apply_tone_auto(self, dt_ms: float = 20.0) -> None:
+        """Scale LOW/MID/HIGH/GAIN toward the profile, pulling back before the ceiling."""
+        target = self.tone_target or default_tone()
+        master = float(self.master_target)
+        if not self.tone_auto_on or not self.processing:
+            self.tone_scale = 1.0
+            live, live_gain = scale_tone(target, master, 1.0)
+            _apply_tone(self, live)
+            self.master_db = live_gain
+            self.tone_live = {**live, "gain_db": live_gain}
+            return
+        peak = max(float(self.meters.peak_l), float(self.meters.peak_r))
+        rms = 0.5 * (float(self.meters.rms_l) + float(self.meters.rms_r))
+        peak_db = 20.0 * math.log10(max(peak, 1e-9))
+        rms_db = 20.0 * math.log10(max(rms, 1e-9))
+        ceiling = float((self.ride or {}).get("ceiling_db", -1.0))
+        headroom = ceiling - peak_db
+        current = float(self.tone_scale)
+        if rms_db < -48.0:
+            desired = current
+        elif headroom < 0.0:
+            desired = current * 0.80
+        elif headroom < 1.5:
+            desired = current * 0.93
+        elif headroom > 7.0 and rms_db < -12.0:
+            desired = min(1.0, current + 0.025)
+        else:
+            desired = current
+        tau = 90.0 if desired < current else 380.0
+        coeff = 1.0 - math.exp(-dt_ms / max(40.0, tau))
+        self.tone_scale = max(0.28, min(1.0, current + (desired - current) * coeff))
+        live, live_gain = scale_tone(target, master, self.tone_scale)
+        _apply_tone(self, live)
+        self.master_db = live_gain
+        self.tone_live = {**live, "gain_db": live_gain}
 
     def apply_auto_fx(self) -> bool:
         """Ride noise, clarity, or level from the input envelope. Dry is never replaced."""
@@ -1691,6 +1744,7 @@ class Daemon:
             self.engine.ingest_output_meters()
             self.engine.apply_auto_fx()
             self.engine.apply_blend_comp()
+            self.engine.apply_tone_auto()
             self.engine.apply_wave_ride()
         except Exception as exc:  # noqa: BLE001
             _log(f"auto fx: {exc}")

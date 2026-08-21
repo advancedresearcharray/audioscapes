@@ -107,6 +107,116 @@ def normalize_tone(raw) -> dict:
     return base
 
 
+TONE_PROFILES: dict[str, dict] = {
+    "Flat": {
+        "low_db": 0.0,
+        "mid_db": 0.0,
+        "high_db": 0.0,
+        "gain_db": 0.0,
+        "note": "Unity LOW / MID / HIGH / GAIN.",
+    },
+    "80s POP": {
+        "low_db": 8.0,
+        "mid_db": 6.0,
+        "high_db": 2.0,
+        "gain_db": 6.0,
+        "note": "Fat low, forward mid, light air, +6 dB gain.",
+    },
+    "Disco": {
+        "low_db": 7.0,
+        "mid_db": 3.0,
+        "high_db": 5.0,
+        "gain_db": 5.0,
+        "note": "Kick and sparkle for four-on-the-floor.",
+    },
+    "Rock": {
+        "low_db": 4.0,
+        "mid_db": 2.0,
+        "high_db": 5.0,
+        "gain_db": 4.0,
+        "note": "Tight body and bright edge.",
+    },
+    "Ballad": {
+        "low_db": 3.0,
+        "mid_db": 5.0,
+        "high_db": 1.0,
+        "gain_db": 2.0,
+        "note": "Warm mids, easy gain.",
+    },
+    "Club": {
+        "low_db": 8.0,
+        "mid_db": 2.0,
+        "high_db": 4.0,
+        "gain_db": 8.0,
+        "note": "Heavy low and loud — AUTO will pull it back from the red.",
+    },
+    "Night": {
+        "low_db": 2.0,
+        "mid_db": 1.0,
+        "high_db": 3.0,
+        "gain_db": -2.0,
+        "note": "Quieter listen, a little air.",
+    },
+    "Voice": {
+        "low_db": -2.0,
+        "mid_db": 6.0,
+        "high_db": 3.0,
+        "gain_db": 2.0,
+        "note": "Speech band forward, less rumble.",
+    },
+}
+
+
+def tone_profile_names() -> list[str]:
+    return list(TONE_PROFILES)
+
+
+def apply_tone_profile(state: dict, name: str) -> dict:
+    key = str(name).strip()
+    spec = TONE_PROFILES.get(key)
+    if spec is None:
+        lower = {n.lower(): n for n in TONE_PROFILES}
+        official = lower.get(key.lower())
+        if official is None:
+            raise KeyError(f"Unknown tone profile: {name}")
+        key, spec = official, TONE_PROFILES[official]
+    out = dict(state)
+    out["tone"] = normalize_tone(spec)
+    out["master_db"] = clamp_master_db(spec["gain_db"])
+    out["tone_preset"] = key
+    return out
+
+
+def match_tone_preset(tone, master_db: float) -> str:
+    tone = normalize_tone(tone)
+    gain = clamp_master_db(master_db)
+    for name, spec in TONE_PROFILES.items():
+        if (
+            abs(tone["low_db"] - spec["low_db"]) < 0.6
+            and abs(tone["mid_db"] - spec["mid_db"]) < 0.6
+            and abs(tone["high_db"] - spec["high_db"]) < 0.6
+            and abs(gain - spec["gain_db"]) < 0.6
+        ):
+            return name
+    return "Custom"
+
+
+def scale_tone(tone, master_db: float, scale: float) -> tuple[dict, float]:
+    amt = max(0.0, min(1.0, float(scale)))
+    src = normalize_tone(tone)
+    live = {key: clamp_master_db(src[key] * amt) for key in ("low_db", "mid_db", "high_db")}
+    return live, clamp_master_db(clamp_master_db(master_db) * amt)
+
+
+def default_tone_auto() -> dict:
+    return {"enabled": False}
+
+
+def normalize_tone_auto(raw) -> dict:
+    src = raw if isinstance(raw, dict) else {}
+    return {"enabled": bool(src.get("enabled", False))}
+
+
 MIX_STEPS = 12
 
 

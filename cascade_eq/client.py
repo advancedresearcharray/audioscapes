@@ -106,6 +106,9 @@ def meters(*, rta: bool = False) -> dict:
         "ride_on": True,
         "ride_target_db": -18.0,
         "bpm": 120.0,
+        "tone_auto": False,
+        "tone_scale": 1.0,
+        "tone_live": {"low_db": 0.0, "mid_db": 0.0, "high_db": 0.0, "gain_db": 0.0},
     }
     try:
         return _send_raw({"cmd": "meters", "rta": bool(rta)}, timeout=0.25)

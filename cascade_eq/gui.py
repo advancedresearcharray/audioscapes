@@ -59,7 +59,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 from . import APP_ID, APP_NAME
 from .client import ClientError, ensure_daemon, meters, ping, request
-from .dsp import BAND_LABELS, CHAIN_STAGES, MASTER_STEPS, MIX_STEPS, auto_reveal_from_rta, clamp_master_db, default_blend, default_ride, default_tone, empty_bands, four_beat_seconds, keep_dly_tone, keep_mix, master_db_from_knob, master_knob_value, mix_amount, mix_eq_lifts, mix_levels, normalize_chain, normalize_tone, set_mix
+from .dsp import BAND_LABELS, CHAIN_STAGES, MASTER_STEPS, MIX_STEPS, TONE_PROFILES, apply_tone_profile, auto_reveal_from_rta, clamp_master_db, default_blend, default_ride, default_tone, default_tone_auto, empty_bands, four_beat_seconds, keep_dly_tone, keep_mix, master_db_from_knob, master_knob_value, match_tone_preset, mix_amount, mix_eq_lifts, mix_levels, normalize_chain, normalize_tone, normalize_tone_auto, set_mix, tone_profile_names
 from .paths import load_state, save_state, sessions_dir
 from .presets import DIGITAL_KEYS, apply_preset, normalize_digital, preset_names
 from .pulse import PulseError, current_output_role, default_sink, is_virtual_name, output_inventory, pick_hardware_sink, resolve_output_role, set_sink_port
@@ -2133,6 +2133,7 @@ class CascadeWindow(Adw.ApplicationWindow):
         self._live_bpm = 120.0
         self._auto_listen: list[list[float]] = []
         self.state["auto_eq"] = {"enabled": False, "lift": empty_bands()}
+        self._tone_auto_on = bool(normalize_tone_auto(self.state.get("tone_auto")).get("enabled"))
         self._last_rec_path = ""
         self._expanders: dict[str, Gtk.Expander] = {}
         self._meter_n = 0
@@ -2283,6 +2284,24 @@ class CascadeWindow(Adw.ApplicationWindow):
             self._on_master_gain,
         )
         tone_row.append(gain_col)
+        tone_ctrl = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        tone_ctrl.set_valign(Gtk.Align.CENTER)
+        tlab = Gtk.Label(label="TONE", xalign=0.5)
+        tlab.add_css_class("field-label")
+        tone_ctrl.append(tlab)
+        tnames = tone_profile_names() + ["Custom"]
+        self.tone_preset = Gtk.DropDown.new_from_strings(tnames)
+        chosen_tone = str(self.state.get("tone_preset") or match_tone_preset(tone_state, self.state.get("master_db", 0)))
+        self.tone_preset.set_selected(tnames.index(chosen_tone) if chosen_tone in tnames else tnames.index("Custom"))
+        self.tone_preset.set_size_request(128, -1)
+        self.tone_preset.connect("notify::selected", self._on_tone_preset)
+        tone_ctrl.append(self.tone_preset)
+        self.btn_tone_auto = self._tape_key("AUTO", self._on_tone_auto)
+        self.btn_tone_auto.add_css_class("tape-load")
+        if self._tone_auto_on:
+            self.btn_tone_auto.add_css_class("hot")
+        tone_ctrl.append(self.btn_tone_auto)
+        tone_row.append(tone_ctrl)
         out_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         out_col.set_valign(Gtk.Align.CENTER)
         self.out_btns = {}
@@ -4015,6 +4034,17 @@ class CascadeWindow(Adw.ApplicationWindow):
                 readout = (self.tone_readouts or {}).get(key)
                 if readout is not None:
                     readout.set_text(f"{clamp_master_db(db):+.0f} dB")
+        if hasattr(self, "tone_preset"):
+            tnames = tone_profile_names() + ["Custom"]
+            chosen = str(state.get("tone_preset") or match_tone_preset(state.get("tone"), state.get("master_db", 0)))
+            self.tone_preset.set_selected(tnames.index(chosen) if chosen in tnames else tnames.index("Custom"))
+        self._tone_auto_on = bool(normalize_tone_auto(state.get("tone_auto")).get("enabled"))
+        if hasattr(self, "btn_tone_auto"):
+            if self._tone_auto_on:
+                self.btn_tone_auto.add_css_class("hot")
+            else:
+                self.btn_tone_auto.remove_css_class("hot")
+                self.btn_tone_auto.set_label("AUTO")
         self._sync_digital_buttons(state)
         self._suppress = False
         self._refresh_la2a()
@@ -4054,15 +4084,26 @@ class CascadeWindow(Adw.ApplicationWindow):
         if hasattr(self, "ride"):
             ride["enabled"] = self.ride.get_active()
         state["ride"] = ride
-        if hasattr(self, "master_knob"):
-            state["master_db"] = master_db_from_knob(self.master_knob.value)
+        auto = normalize_tone_auto(state.get("tone_auto"))
+        auto["enabled"] = bool(getattr(self, "_tone_auto_on", False))
+        state["tone_auto"] = auto
+        if not auto["enabled"]:
+            if hasattr(self, "master_knob"):
+                state["master_db"] = master_db_from_knob(self.master_knob.value)
+            else:
+                state["master_db"] = clamp_master_db(state.get("master_db", 0.0))
+            tone = normalize_tone(state.get("tone"))
+            if hasattr(self, "tone_knobs"):
+                for key, knob in self.tone_knobs.items():
+                    tone[key] = master_db_from_knob(knob.value)
+            state["tone"] = tone
+            if hasattr(self, "tone_preset"):
+                names = tone_profile_names() + ["Custom"]
+                sel = int(self.tone_preset.get_selected())
+                state["tone_preset"] = names[sel] if 0 <= sel < len(names) else "Custom"
         else:
             state["master_db"] = clamp_master_db(state.get("master_db", 0.0))
-        tone = normalize_tone(state.get("tone"))
-        if hasattr(self, "tone_knobs"):
-            for key, knob in self.tone_knobs.items():
-                tone[key] = master_db_from_knob(knob.value)
-        state["tone"] = tone
+            state["tone"] = normalize_tone(state.get("tone"))
         return state
 
     def _on_eq_changed(self, *_args) -> None:
@@ -4251,17 +4292,102 @@ class CascadeWindow(Adw.ApplicationWindow):
     def _on_master_gain(self, value: float) -> None:
         if self._suppress:
             return
+        self._cancel_tone_auto_from_knob()
         self._sync_master_readout(master_db_from_knob(value))
+        self._mark_tone_custom()
         self._schedule_apply()
 
     def _on_tone_gain(self, key: str, value: float) -> None:
         if self._suppress:
             return
+        self._cancel_tone_auto_from_knob()
         db = master_db_from_knob(value)
         readout = (getattr(self, "tone_readouts", None) or {}).get(key)
         if readout is not None:
             readout.set_text(f"{clamp_master_db(db):+.0f} dB")
+        self._mark_tone_custom()
         self._schedule_apply()
+
+    def _mark_tone_custom(self) -> None:
+        if not hasattr(self, "tone_preset"):
+            return
+        names = tone_profile_names() + ["Custom"]
+        self._suppress = True
+        self.tone_preset.set_selected(names.index("Custom"))
+        self._suppress = False
+        self.state["tone_preset"] = "Custom"
+
+    def _cancel_tone_auto_from_knob(self) -> None:
+        if not getattr(self, "_tone_auto_on", False):
+            return
+        self._tone_auto_on = False
+        if hasattr(self, "btn_tone_auto"):
+            self.btn_tone_auto.remove_css_class("hot")
+            self.btn_tone_auto.set_label("AUTO")
+        self.status.set_text("TONE AUTO  ·  off")
+
+    def _on_tone_preset(self, *_args) -> None:
+        if self._suppress:
+            return
+        names = tone_profile_names() + ["Custom"]
+        idx = int(self.tone_preset.get_selected())
+        name = names[idx] if 0 <= idx < len(names) else "Custom"
+        if name == "Custom":
+            self.state["tone_preset"] = "Custom"
+            self._dirty()
+            return
+        self.state = apply_tone_profile(self.state, name)
+        self._suppress = True
+        if hasattr(self, "master_knob"):
+            db = clamp_master_db(self.state.get("master_db", 0.0))
+            self.master_knob.set_value(master_knob_value(db))
+            self._sync_master_readout(db)
+        tone = normalize_tone(self.state.get("tone"))
+        for key, knob in self.tone_knobs.items():
+            db = float(tone.get(key, 0.0))
+            knob.set_value(master_knob_value(db))
+            readout = (self.tone_readouts or {}).get(key)
+            if readout is not None:
+                readout.set_text(f"{clamp_master_db(db):+.0f} dB")
+        self._suppress = False
+        spec = TONE_PROFILES.get(name) or {}
+        self.status.set_text(f"TONE  ·  {name}  ·  {spec.get('note', '')}".strip(" ·"))
+        self._dirty()
+
+    def _on_tone_auto(self, *_args) -> None:
+        if self._tone_auto_on:
+            self._tone_auto_on = False
+            self.btn_tone_auto.remove_css_class("hot")
+            self.btn_tone_auto.set_label("AUTO")
+            self.status.set_text("TONE AUTO  ·  off")
+            self._suppress = True
+            tone = normalize_tone(self.state.get("tone"))
+            for key, knob in self.tone_knobs.items():
+                db = float(tone.get(key, 0.0))
+                knob.set_value(master_knob_value(db))
+                readout = (self.tone_readouts or {}).get(key)
+                if readout is not None:
+                    readout.set_text(f"{clamp_master_db(db):+.0f} dB")
+            db = clamp_master_db(self.state.get("master_db", 0.0))
+            self.master_knob.set_value(master_knob_value(db))
+            self._sync_master_readout(db)
+            self._suppress = False
+            self._dirty()
+            return
+        if not self.enable.get_active():
+            self.enable.set_active(True)
+        if hasattr(self, "ride"):
+            self.ride.set_active(True)
+        tone = normalize_tone(self.state.get("tone"))
+        for key, knob in self.tone_knobs.items():
+            tone[key] = master_db_from_knob(knob.value)
+        self.state["tone"] = tone
+        self.state["master_db"] = master_db_from_knob(self.master_knob.value)
+        self.state["tone_preset"] = match_tone_preset(tone, self.state["master_db"])
+        self._tone_auto_on = True
+        self.btn_tone_auto.add_css_class("hot")
+        self.status.set_text("TONE AUTO  ·  riding knobs, keeping peaks under the ceiling")
+        self._dirty()
 
     def _dirty(self, *_args) -> None:
         if self._suppress:
@@ -4319,7 +4445,7 @@ class CascadeWindow(Adw.ApplicationWindow):
         if hasattr(self, "rec_arm"):
             recording = self.rec_arm.get_active() or self.session_arm.get_active()
         spinning = bool(playing or actually_rec or self._dubbing)
-        busy = bool(self._auto_on or self._auto_until or spinning)
+        busy = bool(self._auto_on or self._auto_until or spinning or getattr(self, "_tone_auto_on", False))
         if not busy and self._meter_n % 2:
             return True
         want_rta = self._unit_open("316") or bool(self._auto_on) or bool(self._auto_until)
@@ -4335,6 +4461,22 @@ class CascadeWindow(Adw.ApplicationWindow):
             )
             self.needle_l.update(float(data.get("peak_l") or 0), float(data.get("rms_l") or 0))
             self.needle_r.update(float(data.get("peak_r") or 0), float(data.get("rms_r") or 0))
+            if getattr(self, "_tone_auto_on", False) and data.get("tone_auto"):
+                live = data.get("tone_live") or {}
+                self._suppress = True
+                for key, knob in self.tone_knobs.items():
+                    db = float(live.get(key, 0.0))
+                    knob.set_value(master_knob_value(db))
+                    readout = (self.tone_readouts or {}).get(key)
+                    if readout is not None:
+                        readout.set_text(f"{clamp_master_db(db):+.0f} dB")
+                gdb = float(live.get("gain_db", self.state.get("master_db", 0)))
+                self.master_knob.set_value(master_knob_value(gdb))
+                self._sync_master_readout(gdb)
+                self._suppress = False
+                scale = float(data.get("tone_scale") or 1.0)
+                if hasattr(self, "btn_tone_auto"):
+                    self.btn_tone_auto.set_label("AUTO" if scale > 0.97 else f"AUTO {int(round(scale * 100))}")
         rta = list(data.get("rta") or [])
         if want_rta and hasattr(self, "eq_wave"):
             self.eq_wave.auto_on = bool(self._auto_on)
